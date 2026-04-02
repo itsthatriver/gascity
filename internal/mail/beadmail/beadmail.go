@@ -211,11 +211,13 @@ func (p *Provider) filterMessages(recipient string, includeRead bool) ([]mail.Me
 	return msgs, nil
 }
 
-// listMessages returns message beads by combining the store's generic list with
-// an explicit gc:message label query. Some external stores can retrieve message
-// beads by ID and label query but omit them from the generic list output.
+// listMessages returns open message beads by combining the store's generic list
+// with an explicit gc:message label query. Some external stores can retrieve
+// message beads by ID and label query but omit them from the generic list output.
+// Only open beads are fetched from the generic list since all callers
+// (filterMessages, Count) filter for open status anyway.
 func (p *Provider) listMessages() ([]beads.Bead, error) {
-	all, err := p.store.List()
+	all, err := p.store.List("open")
 	if err != nil {
 		return nil, fmt.Errorf("listing beads: %w", err)
 	}
