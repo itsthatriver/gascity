@@ -1324,6 +1324,61 @@ func TestReconcileSessionBeads_LiveDriftReapplied(t *testing.T) {
 	}
 }
 
+// failRunLiveProvider wraps a Fake and makes RunLive return an error.
+type failRunLiveProvider struct {
+	*runtime.Fake
+}
+
+func (p *failRunLiveProvider) RunLive(name string, cfg runtime.Config) error {
+	// Record the call for assertion, then fail.
+	_ = p.Fake.RunLive(name, cfg)
+	return fmt.Errorf("session_live command failed")
+}
+
+func TestReconcileSessionBeads_LiveDriftHashNotUpdatedOnError(t *testing.T) {
+	env := newReconcilerTestEnv()
+	env.cfg = &config.City{Agents: []config.Agent{{Name: "worker"}}}
+	env.addDesiredLive("worker", "worker", true, []string{"echo live-updated"})
+	session := env.createSessionBead("worker", "worker")
+	env.markSessionActive(&session)
+
+	// Capture original hashes before reconciliation.
+	origLive := session.Metadata["live_hash"]
+	origStartedLive := session.Metadata["started_live_hash"]
+
+	// Use a provider that fails on RunLive.
+	fp := &failRunLiveProvider{Fake: env.sp}
+	cfgNames := configuredSessionNames(env.cfg, "", env.store)
+	reconcileSessionBeads(
+		context.Background(), []beads.Bead{session}, env.desiredState, cfgNames,
+		env.cfg, fp, env.store, nil, nil, nil, env.dt, map[string]int{}, nil, "",
+		nil, env.clk, env.rec, 0, 0, &env.stdout, &env.stderr,
+	)
+
+	// RunLive should have been called (drift was detected).
+	var runLiveCalled bool
+	for _, c := range env.sp.Calls {
+		if c.Method == "RunLive" && c.Name == "worker" {
+			runLiveCalled = true
+			break
+		}
+	}
+	if !runLiveCalled {
+		t.Fatal("expected RunLive to be called for live drift")
+	}
+
+	// Hashes must NOT be updated because RunLive failed.
+	b, _ := env.store.Get(session.ID)
+	if b.Metadata["live_hash"] != origLive {
+		t.Errorf("live_hash should be unchanged after RunLive error: got %q, want %q",
+			b.Metadata["live_hash"], origLive)
+	}
+	if b.Metadata["started_live_hash"] != origStartedLive {
+		t.Errorf("started_live_hash should be unchanged after RunLive error: got %q, want %q",
+			b.Metadata["started_live_hash"], origStartedLive)
+	}
+}
+
 func TestAllDependenciesAlive_WithSessionTemplate(t *testing.T) {
 	session := beads.Bead{Metadata: map[string]string{"template": "worker"}}
 	cfg := &config.City{

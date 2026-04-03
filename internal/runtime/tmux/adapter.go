@@ -98,9 +98,10 @@ func (p *Provider) Start(ctx context.Context, name string, cfg runtime.Config) e
 
 // RunLive re-applies session_live commands to a running session.
 // Called by the reconciler when only session_live config has changed.
+// Returns an error if any command fails so the reconciler can skip
+// hash updates and retry on the next tick.
 func (p *Provider) RunLive(name string, cfg runtime.Config) error {
-	runSessionLive(context.Background(), &tmuxStartOps{tm: p.tm}, name, cfg, os.Stderr, p.cfg.SetupTimeout)
-	return nil
+	return runSessionLive(context.Background(), &tmuxStartOps{tm: p.tm}, name, cfg, os.Stderr, p.cfg.SetupTimeout)
 }
 
 // Stop destroys the named session and kills its entire process tree.
@@ -494,7 +495,8 @@ func doStartSession(ctx context.Context, ops startOps, name string, cfg runtime.
 	}
 
 	// Step 6.5: Run session_live commands (idempotent, re-applicable).
-	runSessionLive(ctx, ops, name, cfg, os.Stderr, setupTimeout)
+	// Non-fatal during initial start: the session is already running.
+	_ = runSessionLive(ctx, ops, name, cfg, os.Stderr, setupTimeout)
 
 	return nil
 }
@@ -530,10 +532,14 @@ func runSessionSetup(ctx context.Context, ops startOps, name string, cfg runtime
 
 // runSessionLive runs session_live commands (idempotent, re-applicable).
 // Called at startup after nudge, and by the reconciler on live-only drift.
-// Non-fatal: warnings on failure, session still works.
-func runSessionLive(ctx context.Context, ops startOps, name string, cfg runtime.Config, stderr io.Writer, setupTimeout time.Duration) {
+// Returns an error if any command fails. All commands are attempted even
+// if earlier ones fail (partial application is better than none). The
+// returned error is from the first failure, enabling callers to decide
+// whether to retry (e.g., the reconciler skips hash updates on error so
+// drift is re-detected on the next tick).
+func runSessionLive(ctx context.Context, ops startOps, name string, cfg runtime.Config, stderr io.Writer, setupTimeout time.Duration) error {
 	if len(cfg.SessionLive) == 0 {
-		return
+		return nil
 	}
 
 	// Build env vars for live commands.
@@ -543,11 +549,16 @@ func runSessionLive(ctx context.Context, ops startOps, name string, cfg runtime.
 	}
 	setupEnv["GC_SESSION"] = name
 
+	var firstErr error
 	for i, cmd := range cfg.SessionLive {
 		if err := ops.runSetupCommand(ctx, cmd, setupEnv, setupTimeout); err != nil {
 			_, _ = fmt.Fprintf(stderr, "gc: session_live[%d] warning: %v\n", i, err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("session_live[%d]: %w", i, err)
+			}
 		}
 	}
+	return firstErr
 }
 
 // runPreStart runs pre_start commands before session creation.

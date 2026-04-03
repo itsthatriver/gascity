@@ -1130,3 +1130,59 @@ func TestEnsureFreshSession_LongPromptWithFlagUsesFileExpansion(t *testing.T) {
 		t.Errorf("flag-mode long prompt should include --prompt before $(cat ...), got %q", c.command)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// runSessionLive tests
+// ---------------------------------------------------------------------------
+
+func TestRunSessionLive_Success(t *testing.T) {
+	ops := &fakeStartOps{}
+	var stderr strings.Builder
+	cfg := runtime.Config{
+		SessionLive: []string{"echo hello", "echo world"},
+	}
+	err := runSessionLive(context.Background(), ops, "test-sess", cfg, &stderr, 30*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Both commands should run.
+	got := ops.callMethods()
+	if len(got) != 2 || got[0] != "runSetupCommand" || got[1] != "runSetupCommand" {
+		t.Fatalf("calls = %v, want [runSetupCommand runSetupCommand]", got)
+	}
+}
+
+func TestRunSessionLive_Empty(t *testing.T) {
+	ops := &fakeStartOps{}
+	var stderr strings.Builder
+	cfg := runtime.Config{} // no SessionLive
+	err := runSessionLive(context.Background(), ops, "test-sess", cfg, &stderr, 30*time.Second)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ops.calls) != 0 {
+		t.Fatalf("expected no calls for empty session_live, got %d", len(ops.calls))
+	}
+}
+
+func TestRunSessionLive_ErrorPropagated(t *testing.T) {
+	ops := &fakeStartOps{
+		runSetupCommandErr: errors.New("command failed"),
+	}
+	var stderr strings.Builder
+	cfg := runtime.Config{
+		SessionLive: []string{"failing-cmd", "second-cmd"},
+	}
+	err := runSessionLive(context.Background(), ops, "test-sess", cfg, &stderr, 30*time.Second)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "session_live[0]") {
+		t.Errorf("error should reference first failure, got: %v", err)
+	}
+	// All commands should still be attempted despite failure.
+	got := ops.callMethods()
+	if len(got) != 2 {
+		t.Fatalf("expected 2 calls (all commands attempted), got %d", len(got))
+	}
+}
