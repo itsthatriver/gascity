@@ -326,6 +326,86 @@ func TestInitBeadsForDir_execOmitsCanonicalDoltDatabaseWhenUnknown(t *testing.T)
 	}
 }
 
+// TestInitBeadsForDir_execSkipsWhenAlreadyInitialized verifies that when
+// .beads/metadata.json already exists, the init script is NOT called and
+// config files are reconciled in Go instead.
+func TestInitBeadsForDir_execSkipsWhenAlreadyInitialized(t *testing.T) {
+	dir := t.TempDir()
+	beadsDir := filepath.Join(dir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Seed metadata.json to simulate an already-initialized directory.
+	meta := `{"backend":"dolt","database":"dolt","dolt_mode":"server","dolt_database":"myrig"}`
+	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Script that records invocations — should NOT be called.
+	logFile := filepath.Join(t.TempDir(), "invoked.log")
+	script := filepath.Join(t.TempDir(), "should-not-run.sh")
+	content := "#!/bin/sh\necho invoked > " + logFile + "\nexit 0\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GC_BEADS", "exec:"+script)
+	if err := initBeadsForDir(t.TempDir(), dir, "mr", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The script must not have been invoked.
+	if _, err := os.Stat(logFile); err == nil {
+		t.Fatal("init script was called for an already-initialized directory")
+	}
+
+	// Config file should have been reconciled in Go.
+	cfgData, err := os.ReadFile(filepath.Join(beadsDir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("config.yaml not created: %v", err)
+	}
+	if !strings.Contains(string(cfgData), "issue_prefix: mr") {
+		t.Fatalf("config.yaml missing issue_prefix: %s", cfgData)
+	}
+}
+
+// TestInitBeadsForDir_execRunsWhenNoMetadata verifies that without
+// .beads/metadata.json, the init script IS called (first-time init).
+func TestInitBeadsForDir_execRunsWhenNoMetadata(t *testing.T) {
+	dir := t.TempDir() // No .beads/metadata.json
+
+	logFile := filepath.Join(t.TempDir(), "invoked.log")
+	script := filepath.Join(t.TempDir(), "record-init.sh")
+	content := "#!/bin/sh\necho invoked > " + logFile + "\nexit 0\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GC_BEADS", "exec:"+script)
+	if err := initBeadsForDir(t.TempDir(), dir, "mr", "myrig"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The script must have been invoked.
+	if _, err := os.Stat(logFile); err != nil {
+		t.Fatal("init script was NOT called for an uninitialized directory")
+	}
+}
+
+// TestProviderOpTimeout_init verifies that init gets the longer timeout
+// alongside start and recover.
+func TestProviderOpTimeout_init(t *testing.T) {
+	if got := providerOpTimeout("init"); got != 120*time.Second {
+		t.Fatalf("providerOpTimeout(init) = %v, want 120s", got)
+	}
+	if got := providerOpTimeout("start"); got != 120*time.Second {
+		t.Fatalf("providerOpTimeout(start) = %v, want 120s", got)
+	}
+	if got := providerOpTimeout("health"); got != 30*time.Second {
+		t.Fatalf("providerOpTimeout(health) = %v, want 30s", got)
+	}
+}
+
 // TestInitBeadsForDir_bd_skip verifies bd provider is no-op when GC_DOLT=skip.
 func TestInitBeadsForDir_bd_skip(t *testing.T) {
 	dir := t.TempDir()

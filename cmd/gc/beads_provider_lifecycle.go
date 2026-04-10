@@ -358,9 +358,27 @@ func shutdownBeadsProvider(cityPath string) error {
 // initBeadsForDir initializes bead store infrastructure in a directory.
 // Idempotent — skips if already initialized. Callers should use
 // initAndHookDir instead to ensure hooks are installed afterward.
+//
+// Fast path: when .beads/metadata.json already exists, the directory was
+// previously initialized. Config files are reconciled in pure Go (fast
+// file I/O) and the expensive init script exec is skipped entirely.
+// This avoids the 30s+ subprocess overhead that caused init timeouts
+// on systems with many rigs (see ga-dli).
 func initBeadsForDir(cityPath, dir, prefix, doltDatabase string) error {
 	provider := beadsProvider(cityPath)
 	if strings.HasPrefix(provider, "exec:") {
+		// Fast path: metadata.json exists → already initialized.
+		// Reconcile config files in Go and skip the script exec.
+		metaPath := filepath.Join(dir, ".beads", "metadata.json")
+		if _, err := os.Stat(metaPath); err == nil {
+			if doltDatabase == "" {
+				doltDatabase = readDeferredManagedDoltDatabase(metaPath, prefix)
+			}
+			ensureDeferredManagedConfig(filepath.Join(dir, ".beads", "config.yaml"), prefix)
+			ensureDeferredManagedMetadata(metaPath, doltDatabase)
+			return nil
+		}
+		// Not initialized — run the full init script.
 		args := []string{"init", dir, prefix}
 		if strings.TrimSpace(doltDatabase) != "" {
 			args = append(args, doltDatabase)
@@ -767,12 +785,12 @@ func runProviderProbe(script, cityPath string) bool {
 }
 
 // providerOpTimeout returns the context timeout for a given lifecycle
-// operation. The "start" and "recover" operations get a longer timeout
-// because dolt server startup can take 30+ seconds for large data dirs.
-// All other operations use 30s.
+// operation. The "start", "recover", and "init" operations get a longer
+// timeout because dolt server startup and first-time database registration
+// can take 30+ seconds for large data dirs. All other operations use 30s.
 func providerOpTimeout(op string) time.Duration {
 	switch op {
-	case "start", "recover":
+	case "start", "recover", "init":
 		return 120 * time.Second
 	default:
 		return 30 * time.Second
