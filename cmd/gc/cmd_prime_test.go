@@ -6,6 +6,33 @@ import (
 	"github.com/gastownhall/gascity/internal/config"
 )
 
+func TestPrimeAgentName(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		template string
+		alias    string
+		agent    string
+		want     string
+	}{
+		{"explicit arg wins", []string{"mayor"}, "deacon", "deputy", "mc-xxx", "mayor"},
+		{"GC_TEMPLATE over alias", nil, "deacon", "deputy", "mc-xxx", "deacon"},
+		{"GC_ALIAS when no template", nil, "", "deputy", "mc-xxx", "deputy"},
+		{"GC_AGENT when nothing else", nil, "", "", "deacon", "deacon"},
+		{"empty when nothing set", nil, "", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GC_TEMPLATE", tt.template)
+			t.Setenv("GC_ALIAS", tt.alias)
+			t.Setenv("GC_AGENT", tt.agent)
+			if got := primeAgentName(tt.args); got != tt.want {
+				t.Errorf("primeAgentName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildPrimeContextFallsBackToConfiguredRigRoot(t *testing.T) {
 	t.Setenv("GC_RIG", "demo")
 	t.Setenv("GC_RIG_ROOT", "")

@@ -3411,6 +3411,12 @@ prompt_template = "prompts/mayor.md"
 	}
 	t.Setenv("GC_AGENT", "bl-9jl") // bead ID, not an agent name
 	t.Setenv("GC_ALIAS", "mayor")
+	t.Setenv("GC_TEMPLATE", "") // ensure no stale GC_TEMPLATE overrides alias
+	// Clear env vars that could resolve to a different city.
+	t.Setenv("GC_CITY_PATH", "")
+	t.Setenv("GC_CITY", "")
+	t.Setenv("GC_DIR", "")
+	t.Setenv("GC_CITY_ROOT", "")
 
 	var stdout, stderr bytes.Buffer
 	code := doPrime(nil, &stdout, &stderr)
@@ -3419,6 +3425,68 @@ prompt_template = "prompts/mayor.md"
 	}
 	if stdout.String() != promptContent {
 		t.Errorf("stdout = %q, want %q (got default prompt instead of mayor template)", stdout.String(), promptContent)
+	}
+}
+
+func TestDoPrimePrefersGCTemplateOverDriftedAlias(t *testing.T) {
+	// When GC_ALIAS drifts to a different agent's name (e.g., deputy instead
+	// of deacon), gc prime should use GC_TEMPLATE as the authoritative template
+	// name to find the correct agent config.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	promptsDir := filepath.Join(dir, "prompts")
+	if err := os.MkdirAll(promptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deaconContent := "You are the deacon.\n"
+	deputyContent := "You are the deputy.\n"
+	if err := os.WriteFile(filepath.Join(promptsDir, "deacon.md"), []byte(deaconContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(promptsDir, "deputy.md"), []byte(deputyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	toml := `[workspace]
+name = "test-city"
+
+[[agent]]
+name = "deacon"
+prompt_template = "prompts/deacon.md"
+
+[[agent]]
+name = "deputy"
+prompt_template = "prompts/deputy.md"
+`
+	if err := os.WriteFile(filepath.Join(dir, "city.toml"), []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate drifted alias: GC_TEMPLATE says "deacon" but GC_ALIAS drifted to "deputy".
+	t.Setenv("GC_TEMPLATE", "deacon")
+	t.Setenv("GC_ALIAS", "deputy")
+	t.Setenv("GC_AGENT", "mc-xxx") // bead ID
+	// Clear env vars that could resolve to the live city.
+	t.Setenv("GC_CITY_PATH", "")
+	t.Setenv("GC_CITY", "")
+	t.Setenv("GC_DIR", "")
+	t.Setenv("GC_CITY_ROOT", "")
+	t.Setenv("GC_RIG", "")
+	t.Setenv("GC_RIG_ROOT", "")
+
+	var stdout, stderr bytes.Buffer
+	code := doPrime(nil, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("doPrime = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	if stdout.String() != deaconContent {
+		t.Errorf("stdout = %q, want %q (GC_TEMPLATE should override drifted GC_ALIAS)", stdout.String(), deaconContent)
 	}
 }
 

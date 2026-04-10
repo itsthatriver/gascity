@@ -86,13 +86,7 @@ func doPrime(args []string, stdout, stderr io.Writer) int { //nolint:unparam // 
 }
 
 func doPrimeWithMode(args []string, stdout, stderr io.Writer, hookMode bool) int { //nolint:unparam // always returns 0 by design (graceful fallback)
-	agentName := os.Getenv("GC_ALIAS")
-	if agentName == "" {
-		agentName = os.Getenv("GC_AGENT")
-	}
-	if len(args) > 0 {
-		agentName = args[0]
-	}
+	agentName := primeAgentName(args)
 	if hookMode {
 		if sessionID, _ := readPrimeHookContext(); sessionID != "" {
 			persistPrimeHookSessionID(sessionID)
@@ -299,6 +293,24 @@ func isPoolInstance(cfg *config.City, a config.Agent) bool {
 		}
 	}
 	return false
+}
+
+// primeAgentName determines the agent name for gc prime resolution.
+// Priority: explicit arg > GC_TEMPLATE > GC_ALIAS > GC_AGENT.
+// GC_TEMPLATE is set by resolveTemplate to the authoritative config template
+// name, so it's more reliable than GC_ALIAS which can drift at runtime
+// (e.g., via SyncRuntimeAlias from a stale session bead).
+func primeAgentName(args []string) string {
+	if len(args) > 0 {
+		return args[0]
+	}
+	if tmpl := os.Getenv("GC_TEMPLATE"); tmpl != "" {
+		return tmpl
+	}
+	if alias := os.Getenv("GC_ALIAS"); alias != "" {
+		return alias
+	}
+	return os.Getenv("GC_AGENT")
 }
 
 // findAgentByName looks up an agent by its bare config name, ignoring dir.
