@@ -164,6 +164,12 @@ beadID)`. The default sling queries (`EffectiveSlingQuery()` in
 - **Fixed agents**: `bd update <bead-id> --assignee=<qualified-name>`
 - **Pool agents**: `bd update <bead-id> --label=pool:<qualified-name>`
 
+In addition to the sling query, `gc sling` sets `gc.routed_to` metadata on
+the bead. The pool reconciler's `scale_check` uses this metadata to detect
+demand. **Always dispatch via `gc sling`** -- running the sling query directly
+(e.g., `bd update --label=pool:X`) skips the routing metadata and makes the
+bead invisible to the reconciler.
+
 Fixed agents claim by assignee. Pool agents claim by label -- any member
 matching `pool:<name>` can pick it up.
 

@@ -100,7 +100,7 @@ git worktree remove {{ .CityRoot }}/.gc/worktrees/$TARGET_RIG/crew/{{ basename .
 |----------|----------|
 | Quick fix in another rig | Use `git worktree add` |
 | Substantial work in another rig | Use `git worktree add` |
-| Work should be done by target rig's workers | `{{ cmd }} convoy create` + `bd update --label=pool:<rig>/polecat` |
+| Work should be done by target rig's workers | `{{ cmd }} convoy create` + `{{ cmd }} sling <rig>/polecat <bead>` |
 | Infrastructure task | Leave it to the Deacon's dogs |
 
 **Note**: Dogs are utility agents that handle infrastructure tasks (warrants,
@@ -399,7 +399,7 @@ See `{{ .CityRoot }}/docs/AGENT-ERGONOMICS.md` for the full philosophy.
 
 | Want to... | Correct command | Common mistake |
 |------------|----------------|----------------|
-| Dispatch work to polecat | `bd update <bead> --label=pool:<rig>/polecat` | ~~gc polecat spawn~~ / ~~--assignee=<rig>/polecat~~ |
+| Dispatch work to polecat | `{{ cmd }} sling <rig>/polecat <bead>` | ~~bd update --label=pool:X~~ / ~~--assignee=<rig>/polecat~~ |
 | Stop my session | `{{ cmd }} agent drain {{ basename .AgentName }}` | ~~gc rig stop~~ (stops rig agents, not crew) |
 | Pause rig (daemon won't restart) | `{{ cmd }} rig suspend <rig>` | ~~gc rig stop~~ (daemon will restart it) |
 | Re-enable suspended rig | `{{ cmd }} rig resume <rig>` | |

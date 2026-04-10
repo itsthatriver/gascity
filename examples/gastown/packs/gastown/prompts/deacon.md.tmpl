@@ -101,12 +101,12 @@ cycle") without creating formal beads.
 When you detect a stuck agent (witness, refinery, or utility agent), the
 response is always the same:
 
-1. **File a warrant bead:**
+1. **File a warrant bead and route to dog pool:**
 ```bash
 bd create --type=warrant \
   --title="Stuck: <agent>" \
   --metadata '{"target":"<session>","reason":"<reason>","requester":"deacon"}' \
-  --label=pool:dog
+  --json | jq -r '.[0].id' | xargs {{ cmd }} sling dog --no-formula
 ```
 
 2. The dog pool picks up the warrant and runs `mol-shutdown-dance`
@@ -163,7 +163,7 @@ Individual stuck agents don't need escalation — the warrant system handles the
 | List convoys | `gc convoy list` |
 | Find cross-rig deps | `bd dep list <id> --direction=up --type=blocks --json` |
 | Convert dep type | `bd dep remove <id> <dep>` then `bd dep add <id> <dep> --type=related` |
-| File stuck-agent warrant | `bd create --type=warrant --label=pool:dog --metadata '{...}'` |
+| File stuck-agent warrant | `bd create --type=warrant --metadata '{...}' --json \| jq -r '.[0].id' \| xargs {{ cmd }} sling dog --no-formula` |
 | Run system diagnostics | `gc doctor` |
 | Compact wisps (dry run) | `bd mol wisp gc --age 24h --dry-run` |
 | Compact wisps | `bd mol wisp gc --age 24h` |

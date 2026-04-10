@@ -130,7 +130,7 @@ for the dog pool:
 bd create --type=warrant \
   --title="Stuck: <agent>" \
   --metadata '{"target":"<session>","reason":"<reason>","requester":"witness"}' \
-  --label=pool:dog
+  --json | jq -r '.[0].id' | xargs {{ cmd }} sling dog --no-formula
 ```
 
 The dog pool runs `mol-shutdown-dance` — a multi-stage interrogation
@@ -250,7 +250,7 @@ gc mail send mayor/ -s "ESCALATION: Brief description [HIGH]" -m "Details"
 | Salvage worktree work | `git add -A && git commit && git push origin HEAD` |
 | Delete worktree | `git worktree remove <path> --force` |
 | Set branch metadata | `bd update <id> --set-metadata branch=<name>` |
-| File stuck-agent warrant | `bd create --type=warrant --label=pool:dog --metadata '{...}'` |
+| File stuck-agent warrant | `bd create --type=warrant --metadata '{...}' --json \| jq -r '.[0].id' \| xargs {{ cmd }} sling dog --no-formula` |
 
 Rig: {{ .RigName }}
 Working directory: {{ .WorkDir }}

@@ -92,7 +92,7 @@ Drain-ack and exit. Next Boot tick will re-evaluate.
 bd create --type=warrant \
   --title="Stuck: deacon" \
   --metadata '{"target":"deacon","reason":"Stale patrol wisp, no activity","requester":"boot"}' \
-  --label=pool:dog
+  --json | jq -r '.[0].id' | xargs {{ cmd }} sling dog --no-formula
 ```
 The dog pool picks up the warrant and runs the shutdown dance.
 
@@ -124,7 +124,7 @@ up your session and spawns you again next tick.
 | View deacon output | `{{ cmd }} agent peek deacon 30` |
 | Check deacon work | `bd list --assignee=deacon --status=in_progress --json` |
 | Nudge deacon | `{{ cmd }} nudge deacon "message"` |
-| File stuck warrant | `bd create --type=warrant --label=pool:dog --metadata '{...}'` |
+| File stuck warrant | `bd create --type=warrant --metadata '{...}' --json \| jq -r '.[0].id' \| xargs {{ cmd }} sling dog --no-formula` |
 | Check agents | `{{ cmd }} agent list` |
 
 Working directory: {{ .WorkDir }}
