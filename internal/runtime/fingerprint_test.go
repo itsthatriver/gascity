@@ -428,6 +428,78 @@ func TestHashPathContentUnreadableChild(t *testing.T) {
 	}
 }
 
+func TestCoreFingerprintIgnoresBeaconInNudge(t *testing.T) {
+	// When PromptMode=="none" agents fold the full prompt (including beacon)
+	// into the Nudge, a city restart changes beaconTime → different Nudge →
+	// false config-drift. CoreFingerprint must strip the beacon prefix from
+	// the Nudge so the volatile timestamp doesn't affect the hash.
+	prompt := "[gascity] worker • 2026-04-08T13:00:00\n\nYou are a worker agent."
+	promptNewTime := "[gascity] worker • 2026-04-10T20:00:00\n\nYou are a worker agent."
+
+	a := Config{Command: "claude", Nudge: prompt}
+	b := Config{Command: "claude", Nudge: promptNewTime}
+	if CoreFingerprint(a) != CoreFingerprint(b) {
+		t.Error("beacon timestamp in Nudge should not affect CoreFingerprint")
+	}
+}
+
+func TestCoreFingerprintBeaconStrippingPreservesNudgeContent(t *testing.T) {
+	// Different non-beacon content in the Nudge should still produce
+	// different hashes.
+	a := Config{Command: "claude", Nudge: "[gascity] worker • 2026-04-08T13:00:00\n\nRole A."}
+	b := Config{Command: "claude", Nudge: "[gascity] worker • 2026-04-08T13:00:00\n\nRole B."}
+	if CoreFingerprint(a) == CoreFingerprint(b) {
+		t.Error("different Nudge content (after beacon) should produce different hashes")
+	}
+}
+
+func TestCoreFingerprintNudgeWithoutBeaconUnchanged(t *testing.T) {
+	// Nudges that don't start with a beacon should hash normally.
+	a := Config{Command: "claude", Nudge: "hello agent"}
+	b := Config{Command: "claude", Nudge: "goodbye agent"}
+	if CoreFingerprint(a) == CoreFingerprint(b) {
+		t.Error("different Nudge without beacon should produce different hashes")
+	}
+}
+
+func TestCoreFingerprintBreakdownBeaconStripping(t *testing.T) {
+	// CoreFingerprintBreakdown must also strip beacons so the Nudge field
+	// hash matches between start and reconcile after a city restart.
+	prompt := "[gascity] worker • 2026-04-08T13:00:00\n\nYou are a worker agent."
+	promptNewTime := "[gascity] worker • 2026-04-10T20:00:00\n\nYou are a worker agent."
+
+	a := Config{Command: "claude", Nudge: prompt}
+	b := Config{Command: "claude", Nudge: promptNewTime}
+	bdA := CoreFingerprintBreakdown(a)
+	bdB := CoreFingerprintBreakdown(b)
+	if bdA["Nudge"] != bdB["Nudge"] {
+		t.Errorf("beacon in Nudge should not affect breakdown: %q vs %q", bdA["Nudge"], bdB["Nudge"])
+	}
+}
+
+func TestStripBeaconPrefix(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"with beacon", "[gascity] worker • 2026-04-08T13:00:00\n\nYou are a worker.", "You are a worker."},
+		{"no beacon", "Just a normal prompt.", "Just a normal prompt."},
+		{"empty", "", ""},
+		{"beacon only", "[gascity] worker • 2026-04-08T13:00:00", "[gascity] worker • 2026-04-08T13:00:00"},
+		{"no bullet", "[gascity] worker 2026-04-08\n\nContent", "[gascity] worker 2026-04-08\n\nContent"},
+		{"beacon with nudge", "[gascity] worker • 2026-04-08T13:00:00\n\nRole prompt.\n\n---\n\nOriginal nudge", "Role prompt.\n\n---\n\nOriginal nudge"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := StripBeaconPrefix(tt.in)
+			if got != tt.want {
+				t.Errorf("StripBeaconPrefix(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLogCoreFingerprintDriftCopyFiles(t *testing.T) {
 	stored := map[string]string{
 		"CopyFiles": "oldhash",

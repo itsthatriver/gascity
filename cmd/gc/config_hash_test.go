@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gastownhall/gascity/internal/agent"
+	"github.com/gastownhall/gascity/internal/runtime"
 )
 
 func TestConfigHash_Canonical(t *testing.T) {
@@ -137,7 +138,7 @@ func TestConfigHash_BeaconTimeStability(t *testing.T) {
 	}
 }
 
-func TestStripBeaconPrefix(t *testing.T) {
+func TestStripBeaconPrefixConfig(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -149,8 +150,8 @@ func TestStripBeaconPrefix(t *testing.T) {
 		{"bracket but no newline", "[city] agent", "[city] agent"},
 	}
 	for _, tt := range tests {
-		if got := stripBeaconPrefix(tt.input); got != tt.want {
-			t.Errorf("%s: stripBeaconPrefix() = %q, want %q", tt.name, got, tt.want)
+		if got := runtime.StripBeaconPrefix(tt.input); got != tt.want {
+			t.Errorf("%s: StripBeaconPrefix() = %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }

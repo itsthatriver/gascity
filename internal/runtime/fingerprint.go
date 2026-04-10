@@ -135,9 +135,14 @@ func hashCoreFields(h hash.Hash, cfg Config) {
 		hashSortedMap(h, cfg.FingerprintExtra)
 	}
 
-	// Nudge
-	h.Write([]byte(cfg.Nudge)) //nolint:errcheck // hash.Write never errors
-	h.Write([]byte{0})         //nolint:errcheck // hash.Write never errors
+	// Nudge — strip beacon prefix before hashing. For PromptMode=="none"
+	// agents without hooks, the full prompt (including beacon) is folded
+	// into the Nudge. The beacon contains a volatile timestamp that changes
+	// on city restart, causing false config-drift drains for all surviving
+	// sessions. Stripping the beacon here makes the hash stable across
+	// restarts while still detecting real nudge content changes.
+	h.Write([]byte(StripBeaconPrefix(cfg.Nudge))) //nolint:errcheck // hash.Write never errors
+	h.Write([]byte{0})                             //nolint:errcheck // hash.Write never errors
 
 	// PreStart
 	for _, ps := range cfg.PreStart {
@@ -249,7 +254,7 @@ func CoreFingerprintBreakdown(cfg Config) map[string]string {
 			}
 		}),
 		"Nudge": fieldHash(func(h hash.Hash) {
-			h.Write([]byte(cfg.Nudge))
+			h.Write([]byte(StripBeaconPrefix(cfg.Nudge)))
 		}),
 		"PreStart": fieldHash(func(h hash.Hash) {
 			for _, ps := range cfg.PreStart {
@@ -339,6 +344,24 @@ func LogCoreFingerprintDrift(w io.Writer, name string, storedBreakdown map[strin
 			}
 		}
 	}
+}
+
+// StripBeaconPrefix removes the time-stamped beacon line from a prompt or
+// nudge string. The beacon format is "[city] agent • timestamp\n\n<body>".
+// Only strips when the first line matches the beacon pattern (starts with "["
+// and contains "•"). If no beacon is detected, the string is returned unchanged.
+func StripBeaconPrefix(s string) string {
+	if !strings.HasPrefix(s, "[") {
+		return s
+	}
+	idx := strings.Index(s, "\n\n")
+	if idx < 0 {
+		return s
+	}
+	if !strings.Contains(s[:idx], "•") {
+		return s
+	}
+	return s[idx+2:]
 }
 
 // filteredEnv returns only the allow-listed env keys for diagnostic output.

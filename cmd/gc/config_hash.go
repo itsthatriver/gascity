@@ -9,7 +9,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sort"
-	"strings"
+
+	"github.com/gastownhall/gascity/internal/runtime"
 )
 
 // canonicalConfigHash computes a SHA-256 hash over the behavioral fields of
@@ -44,7 +45,7 @@ func canonicalConfigHash(params TemplateParams, overlay map[string]string) strin
 	if v, ok := overlay["prompt"]; ok {
 		prompt = v
 	} else {
-		prompt = stripBeaconPrefix(prompt)
+		prompt = runtime.StripBeaconPrefix(prompt)
 	}
 	h.Write([]byte(prompt)) //nolint:errcheck
 	h.Write([]byte{0})      //nolint:errcheck
@@ -122,25 +123,6 @@ func canonicalConfigHash(params TemplateParams, overlay map[string]string) strin
 		return sum[:16]
 	}
 	return sum
-}
-
-// stripBeaconPrefix removes the time-stamped beacon line from a prompt.
-// The beacon format is "[city] agent • timestamp\n\n<prompt body>".
-// Only strips when the first line matches the beacon pattern (contains "•").
-// If no beacon is detected, the prompt is returned unchanged.
-func stripBeaconPrefix(prompt string) string {
-	if !strings.HasPrefix(prompt, "[") {
-		return prompt
-	}
-	idx := strings.Index(prompt, "\n\n")
-	if idx < 0 {
-		return prompt
-	}
-	// Only strip if the prefix looks like a beacon (contains bullet separator).
-	if !strings.Contains(prompt[:idx], "•") {
-		return prompt
-	}
-	return prompt[idx+2:]
 }
 
 // hashSortedStringMap writes map entries to h in deterministic sorted order.
