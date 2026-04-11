@@ -24,16 +24,17 @@ const currentPackSchema = 1
 // packConfig is the TOML structure of a pack.toml file.
 // It has a [pack] metadata header and agent definitions.
 type packConfig struct {
-	Pack          PackMeta                `toml:"pack"`
-	Agents        []Agent                 `toml:"agent"`
-	NamedSessions []NamedSession          `toml:"named_session,omitempty"`
-	Services      []Service               `toml:"service,omitempty"`
-	Providers     map[string]ProviderSpec `toml:"providers,omitempty"`
-	Formulas      FormulasConfig          `toml:"formulas,omitempty"`
-	Patches       Patches                 `toml:"patches,omitempty"`
-	Doctor        []PackDoctorEntry       `toml:"doctor,omitempty"`
-	Commands      []PackCommandEntry      `toml:"commands,omitempty"`
-	Global        PackGlobal              `toml:"global,omitempty"`
+	Pack               PackMeta                       `toml:"pack"`
+	Agents             []Agent                        `toml:"agent"`
+	NamedSessions      []NamedSession                 `toml:"named_session,omitempty"`
+	Services           []Service                      `toml:"service,omitempty"`
+	Providers          map[string]ProviderSpec        `toml:"providers,omitempty"`
+	PermissionProfiles map[string]PermissionProfile   `toml:"permission_profiles,omitempty"`
+	Formulas           FormulasConfig                 `toml:"formulas,omitempty"`
+	Patches            Patches                        `toml:"patches,omitempty"`
+	Doctor             []PackDoctorEntry              `toml:"doctor,omitempty"`
+	Commands           []PackCommandEntry             `toml:"commands,omitempty"`
+	Global             PackGlobal                     `toml:"global,omitempty"`
 }
 
 // ExpandPacks resolves pack references on all rigs. For each rig
@@ -76,7 +77,7 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 				}
 			}
 
-			agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPack(fs, topoPath, topoDir, cityRoot, rig.Name, nil)
+			agents, namedSessions, providers, services, topoDirs, reqs, globals, permProfiles, err := loadPack(fs, topoPath, topoDir, cityRoot, rig.Name, nil)
 			if err != nil {
 				return fmt.Errorf("rig %q pack %q: %w", rig.Name, ref, err)
 			}
@@ -130,6 +131,18 @@ func ExpandPacks(cfg *City, fs fsys.FS, cityRoot string, rigFormulaDirs map[stri
 				for name, spec := range providers {
 					if _, exists := cfg.Providers[name]; !exists {
 						cfg.Providers[name] = spec
+					}
+				}
+			}
+
+			// Merge permission profiles into city (additive, no overwrite).
+			if len(permProfiles) > 0 {
+				if cfg.PermissionProfiles == nil {
+					cfg.PermissionProfiles = make(map[string]PermissionProfile)
+				}
+				for name, prof := range permProfiles {
+					if _, exists := cfg.PermissionProfiles[name]; !exists {
+						cfg.PermissionProfiles[name] = prof
 					}
 				}
 			}
@@ -241,7 +254,7 @@ func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRe
 			}
 		}
 
-		agents, namedSessions, providers, services, topoDirs, reqs, globals, err := loadPack(fs, topoPath, topoDir, cityRoot, "", nil)
+		agents, namedSessions, providers, services, topoDirs, reqs, globals, profiles, err := loadPack(fs, topoPath, topoDir, cityRoot, "", nil)
 		if err != nil {
 			// pack.toml may be missing if the pack was removed upstream after
 			// the repo was fetched. Skip gracefully.
@@ -254,6 +267,18 @@ func ExpandCityPacks(cfg *City, fs fsys.FS, cityRoot string) ([]string, []PackRe
 		allRequires = append(allRequires, reqs...)
 		allGlobals = append(allGlobals, globals...)
 		cfg.Services = append(cfg.Services, services...)
+
+		// Merge permission profiles (additive, first wins).
+		if len(profiles) > 0 {
+			if cfg.PermissionProfiles == nil {
+				cfg.PermissionProfiles = make(map[string]PermissionProfile)
+			}
+			for name, prof := range profiles {
+				if _, exists := cfg.PermissionProfiles[name]; !exists {
+					cfg.PermissionProfiles[name] = prof
+				}
+			}
+		}
 
 		// Accumulate pack dirs (deduped).
 		allPackDirs = appendUnique(allPackDirs, topoDirs...)
@@ -503,7 +528,7 @@ func checkPackAgentCollisions(agents []Agent, rigName string) error {
 // Pass nil for the initial call; it will be initialized automatically.
 // Includes are processed recursively: included agents come first (base
 // layer), then the parent's own agents (override layer).
-func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[string]bool) ([]Agent, []NamedSession, map[string]ProviderSpec, []Service, []string, []PackRequirement, []ResolvedPackGlobal, error) {
+func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[string]bool) ([]Agent, []NamedSession, map[string]ProviderSpec, []Service, []string, []PackRequirement, []ResolvedPackGlobal, map[string]PermissionProfile, error) {
 	// Initialize seen set on first call.
 	if seen == nil {
 		seen = make(map[string]bool)
@@ -515,22 +540,22 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 		absTopoDir = topoDir
 	}
 	if seen[absTopoDir] {
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("cycle detected: pack %q already visited", topoDir)
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("cycle detected: pack %q already visited", topoDir)
 	}
 	seen[absTopoDir] = true
 
 	data, err := fs.ReadFile(topoPath)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("loading %s: %w", packFile, err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("loading %s: %w", packFile, err)
 	}
 
 	var tc packConfig
 	if _, err := toml.Decode(string(data), &tc); err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("parsing %s: %w", packFile, err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("parsing %s: %w", packFile, err)
 	}
 
 	if err := validatePackMeta(&tc.Pack); err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
 	// Process includes: accumulate base-layer agents, providers,
@@ -542,18 +567,19 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 	var allRequires []PackRequirement
 	var includedGlobals []ResolvedPackGlobal
 	includedProviders := make(map[string]ProviderSpec)
+	includedPermProfiles := make(map[string]PermissionProfile)
 
 	for _, inc := range tc.Pack.Includes {
 		incTopoDir, err := resolvePackRef(inc, topoDir, cityRoot)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
+			return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
 		}
 
 		incTopoPath := filepath.Join(incTopoDir, packFile)
-		incAgents, incNamedSessions, incProviders, incServices, incTopoDirs, incReqs, incGlobals, err := loadPack(
+		incAgents, incNamedSessions, incProviders, incServices, incTopoDirs, incReqs, incGlobals, incProfiles, err := loadPack(
 			fs, incTopoPath, incTopoDir, cityRoot, rigName, seen)
 		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
+			return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("include %q: %w", inc, err)
 		}
 
 		includedAgents = append(includedAgents, incAgents...)
@@ -567,6 +593,13 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 		for name, spec := range incProviders {
 			if _, exists := includedProviders[name]; !exists {
 				includedProviders[name] = spec
+			}
+		}
+
+		// Merge permission profiles: included first, no overwrite.
+		for name, prof := range incProfiles {
+			if _, exists := includedPermProfiles[name]; !exists {
+				includedPermProfiles[name] = prof
 			}
 		}
 	}
@@ -614,7 +647,7 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 	for i := range services {
 		services[i].SourceDir = topoDir
 		if services[i].PublishMode == "direct" {
-			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("service %q: packs may not set publish_mode=direct", services[i].Name)
+			return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("service %q: packs may not set publish_mode=direct", services[i].Name)
 		}
 	}
 
@@ -627,7 +660,7 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 	if !tc.Patches.IsEmpty() {
 		adjustPackPatchPaths(&tc.Patches, topoDir, cityRoot)
 		if err := applyPackAgentPatches(includedAgents, tc.Patches.Agents); err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 	}
 
@@ -658,6 +691,12 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 		mergedProviders[name] = spec
 	}
 
+	// Merge permission profiles: parent wins over included.
+	mergedPermProfiles := includedPermProfiles
+	for name, prof := range tc.PermissionProfiles {
+		mergedPermProfiles[name] = prof
+	}
+
 	// Build pack dirs: included pack dirs first (lower priority),
 	// then this pack's dir (higher priority).
 	var topoDirs []string
@@ -674,7 +713,7 @@ func loadPack(fs fsys.FS, topoPath, topoDir, cityRoot, rigName string, seen map[
 		})
 	}
 
-	return includedAgents, includedNamedSessions, mergedProviders, includedServices, topoDirs, allRequires, allGlobals, nil
+	return includedAgents, includedNamedSessions, mergedProviders, includedServices, topoDirs, allRequires, allGlobals, mergedPermProfiles, nil
 }
 
 // applyPackGlobals appends [global].session_live commands from packs
@@ -1113,7 +1152,7 @@ func PackDefinesAgent(fs fsys.FS, packRef, cityRoot, agentName string) bool {
 	}
 	topoPath := filepath.Join(topoDir, packFile)
 
-	agents, _, _, _, _, _, _, err := loadPack(fs, topoPath, topoDir, cityRoot, "", nil)
+	agents, _, _, _, _, _, _, _, err := loadPack(fs, topoPath, topoDir, cityRoot, "", nil)
 	if err != nil {
 		return false
 	}
