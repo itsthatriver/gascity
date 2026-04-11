@@ -151,6 +151,10 @@ type City struct {
 	// RigScriptDirs maps rig name to its ordered scripts/ directories
 	// from rig packs. Populated during pack expansion. Not from TOML.
 	RigScriptDirs map[string][]string `toml:"-" json:"-"`
+	// PermissionProfiles holds named permission sets merged from all loaded
+	// packs. Agents reference profiles by name via their permission_profile
+	// field. Populated during pack expansion. Not from TOML.
+	PermissionProfiles map[string]PermissionProfile `toml:"-" json:"-"`
 }
 
 // NamedSession defines a canonical persistent session backed by an agent
@@ -1133,6 +1137,23 @@ type AgentDefaults struct {
 	// AllowEnvOverride lists environment variable names that sessions may
 	// override at creation time. Names must match ^[A-Z][A-Z0-9_]{0,127}$.
 	AllowEnvOverride []string `toml:"allow_env_override,omitempty"`
+}
+
+// PermissionProfile defines a named set of Claude Code permissions.
+// Profiles are declared in pack.toml under [permission_profiles.<name>]
+// and referenced by agents via their permission_profile field.
+type PermissionProfile struct {
+	// Description is a human-readable explanation of this profile's purpose.
+	Description string `toml:"description,omitempty"`
+	// Allow lists tool patterns that the agent may use without prompting.
+	Allow []string `toml:"allow,omitempty"`
+	// Deny lists tool patterns that the agent may never use.
+	Deny []string `toml:"deny,omitempty"`
+	// SkipDangerousPrompt suppresses the "dangerous mode" confirmation prompt.
+	SkipDangerousPrompt bool `toml:"skip_dangerous_prompt,omitempty"`
+	// Type identifies the profile kind. "exec" marks shell-only agents
+	// that have no Claude Code session and need no permissions.
+	Type string `toml:"type,omitempty"`
 }
 
 // Agent defines a configured agent in the city.
