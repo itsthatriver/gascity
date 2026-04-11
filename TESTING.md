@@ -155,11 +155,13 @@ verify each component's contract in isolation; coordination tests verify
 the wiring between components.
 
 **What coordination tests prove:**
+
 - Lifecycle ordering (ensure-ready before init, shutdown after agents stop)
 - Hook survival (hooks reinstalled after init wipes them)
 - Qualification consistency (all effective methods use the same name form)
 
 **What they don't prove:**
+
 - Component correctness — that's what conformance tests cover
 - Full E2E behavior — that's integration tests
 
@@ -228,6 +230,7 @@ test coverage. This table is the checklist for new provider implementations.
 | **Dolt** (internal) | dolt.EnsureRunning, dolt.StopCity | ensure → init, stop after agents | Covered by beads lifecycle (exec spy) |
 
 **Adding a new provider:** When adding a new implementation of any seam:
+
 1. Run the conformance suite against it (mandatory)
 2. If the provider has lifecycle dependencies (startup ordering, shutdown
    sequencing), add a coordination test using the `exec:<spy>` pattern
@@ -290,12 +293,14 @@ for i, c := range sp.Calls {
 Three patterns, used where they fit:
 
 **Per-path errors** (`fsys.Fake`) — fine-grained, fail specific operations:
+
 ```go
 f := fsys.NewFake()
 f.Errors["/city/rigs"] = fmt.Errorf("disk full")
 ```
 
 **Modal errors** (`runtime.Fake`) — all-or-nothing broken mode:
+
 ```go
 f := runtime.NewFake()
 f.Broken = true // Start/Stop/Attach and related operations return errors
@@ -325,6 +330,7 @@ Every CLI command splits into two functions:
   Returns an exit code.
 
 Unit tests call `doFoo()` directly with fakes:
+
 ```go
 sp := runtime.NewFake()
 code := doSessionAttach(sp, "mayor", &stdout, &stderr)
@@ -375,6 +381,7 @@ implementation.
 | `GC_DOLT` | `skip`, (absent) | N/A (checked inline) | dolt lifecycle in `cmd_init.go`, `cmd_start.go`, `cmd_stop.go` |
 
 **Design rules for env var fakes:**
+
 - The fake never reads env vars itself — the factory function does
 - At most three modes per dependency: works, fails, real
 - If you need more than two env vars to set up a test scenario, it

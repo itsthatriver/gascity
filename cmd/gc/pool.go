@@ -196,6 +196,7 @@ func deepCopyAgent(src *config.Agent, name, dir string) config.Agent {
 		Dir:               dir,
 		WorkDir:           src.WorkDir,
 		Scope:             src.Scope,
+		PermissionProfile: src.PermissionProfile,
 		Session:           src.Session,
 		Provider:          src.Provider,
 		PromptTemplate:    src.PromptTemplate,

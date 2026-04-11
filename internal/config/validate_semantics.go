@@ -59,6 +59,24 @@ func ValidateSemantics(cfg *City, source string) []string {
 		}
 	}
 
+	// Check permission_profile references on agents.
+	for _, a := range cfg.Agents {
+		if a.PermissionProfile == "" {
+			continue
+		}
+		if len(cfg.PermissionProfiles) == 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s: agent %q: permission_profile %q is set but no [permission_profiles] are defined",
+				source, a.QualifiedName(), a.PermissionProfile))
+			continue
+		}
+		if _, ok := cfg.PermissionProfiles[a.PermissionProfile]; !ok {
+			warnings = append(warnings, fmt.Sprintf(
+				"%s: agent %q: permission_profile %q does not match any defined profile",
+				source, a.QualifiedName(), a.PermissionProfile))
+		}
+	}
+
 	// Check overlapping idle lifecycle controls.
 	for _, a := range cfg.Agents {
 		if a.IdleTimeout != "" && a.SleepAfterIdle != "" {

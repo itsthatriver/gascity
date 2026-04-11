@@ -27,6 +27,19 @@ description = "Show gastown orchestration overview"
 long_description = "commands/status-help.txt"
 script = "commands/status.sh"
 
+[permission_profiles.worker]
+description = "Claude Code agents — full toolset for autonomous work"
+allow = [
+  "Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "Glob(*)", "Grep(*)",
+  "Agent(*)", "Skill(*)", "WebFetch(*)", "WebSearch(*)",
+  "NotebookEdit(*)", "TaskCreate(*)", "TaskUpdate(*)", "mcp__*"
+]
+skip_dangerous_prompt = true
+
+[permission_profiles.exec]
+description = "Shell-only agents — no Claude Code session"
+type = "exec"
+
 [formulas]
 dir = "formulas"
 

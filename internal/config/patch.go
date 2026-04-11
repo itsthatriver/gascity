@@ -26,6 +26,8 @@ type AgentPatch struct {
 	WorkDir *string `toml:"work_dir,omitempty"`
 	// Scope overrides the agent's scope ("city" or "rig").
 	Scope *string `toml:"scope,omitempty"`
+	// PermissionProfile overrides the agent's permission profile name.
+	PermissionProfile *string `toml:"permission_profile,omitempty"`
 	// Suspended overrides the agent's suspended state.
 	Suspended *bool `toml:"suspended,omitempty"`
 	// Pool overrides pool configuration fields.
@@ -203,6 +205,9 @@ func applyAgentPatchFields(a *Agent, p *AgentPatch) {
 	}
 	if p.Scope != nil {
 		a.Scope = *p.Scope
+	}
+	if p.PermissionProfile != nil {
+		a.PermissionProfile = *p.PermissionProfile
 	}
 	if p.Suspended != nil {
 		a.Suspended = *p.Suspended

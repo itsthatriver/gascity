@@ -286,6 +286,8 @@ type AgentOverride struct {
 	WorkDir *string `toml:"work_dir,omitempty"`
 	// Scope overrides the agent's scope ("city" or "rig").
 	Scope *string `toml:"scope,omitempty"`
+	// PermissionProfile overrides the agent's permission profile name.
+	PermissionProfile *string `toml:"permission_profile,omitempty"`
 	// Suspended sets the agent's suspended state.
 	Suspended *bool `toml:"suspended,omitempty"`
 	// Pool overrides pool configuration fields.
@@ -1173,6 +1175,11 @@ type Agent struct {
 	// or "rig" (one per rig, the default). Only meaningful for pack-defined
 	// agents; inline agents in city.toml use Dir directly.
 	Scope string `toml:"scope,omitempty" jsonschema:"enum=city,enum=rig"`
+	// PermissionProfile names the permission profile from [permission_profiles]
+	// that applies to this agent. When set, the runtime generates
+	// settings.json from the profile. Optional — agents without a profile
+	// continue to work (backward compat).
+	PermissionProfile string `toml:"permission_profile,omitempty"`
 	// Suspended prevents the reconciler from spawning this agent. Toggle with gc agent suspend/resume.
 	Suspended bool `toml:"suspended,omitempty"`
 	// PreStart is a list of shell commands run before session creation.

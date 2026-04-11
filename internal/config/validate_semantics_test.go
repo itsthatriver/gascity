@@ -221,3 +221,67 @@ func TestValidateAgentsPromptFlagWithFlagModeOK(t *testing.T) {
 		t.Errorf("should be valid: %v", err)
 	}
 }
+
+func TestValidateSemanticsUnknownPermissionProfile(t *testing.T) {
+	cfg := &City{
+		Agents: []Agent{
+			{Name: "polecat", PermissionProfile: "nonexistent"},
+		},
+		PermissionProfiles: map[string]PermissionProfile{
+			"worker": {Description: "test"},
+		},
+	}
+	warnings := ValidateSemantics(cfg, "city.toml")
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "nonexistent") {
+		t.Errorf("warning should mention profile name: %s", warnings[0])
+	}
+}
+
+func TestValidateSemanticsPermissionProfileNoProfilesDefined(t *testing.T) {
+	cfg := &City{
+		Agents: []Agent{
+			{Name: "polecat", PermissionProfile: "worker"},
+		},
+	}
+	warnings := ValidateSemantics(cfg, "city.toml")
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], "no [permission_profiles] are defined") {
+		t.Errorf("warning should explain profiles are missing: %s", warnings[0])
+	}
+}
+
+func TestValidateSemanticsPermissionProfileValid(t *testing.T) {
+	cfg := &City{
+		Agents: []Agent{
+			{Name: "polecat", PermissionProfile: "worker"},
+		},
+		PermissionProfiles: map[string]PermissionProfile{
+			"worker": {Description: "test"},
+		},
+	}
+	warnings := ValidateSemantics(cfg, "city.toml")
+	for _, w := range warnings {
+		if strings.Contains(w, "permission_profile") {
+			t.Errorf("unexpected permission_profile warning: %s", w)
+		}
+	}
+}
+
+func TestValidateSemanticsPermissionProfileEmpty(t *testing.T) {
+	cfg := &City{
+		Agents: []Agent{
+			{Name: "polecat"},
+		},
+	}
+	warnings := ValidateSemantics(cfg, "city.toml")
+	for _, w := range warnings {
+		if strings.Contains(w, "permission_profile") {
+			t.Errorf("unexpected permission_profile warning for empty field: %s", w)
+		}
+	}
+}

@@ -1885,7 +1885,7 @@ includes = ["../maintenance"]
 name = "mayor"
 `)
 
-	agents, _, _, _, _, _, _, err := loadPack(
+	agents, _, _, _, _, _, _, _, err := loadPack(
 		fsys.OSFS{},
 		filepath.Join(dir, "packs/gastown/pack.toml"),
 		filepath.Join(dir, "packs/gastown"),
@@ -1932,7 +1932,7 @@ name = "mayor"
 scope = "city"
 `)
 
-	agents, _, _, _, _, _, _, err := loadPack(
+	agents, _, _, _, _, _, _, _, err := loadPack(
 		fsys.OSFS{},
 		filepath.Join(dir, "packs/gastown/pack.toml"),
 		filepath.Join(dir, "packs/gastown"),
@@ -2075,7 +2075,7 @@ name = "mayor"
 `)
 	writeFile(t, dir, "packs/gastown/formulas/.keep", "")
 
-	_, _, _, _, topoDirs, _, _, err := loadPack(
+	_, _, _, _, topoDirs, _, _, _, err := loadPack(
 		fsys.OSFS{},
 		filepath.Join(dir, "packs/gastown/pack.toml"),
 		filepath.Join(dir, "packs/gastown"),
@@ -2119,7 +2119,7 @@ includes = ["../a"]
 name = "beta"
 `)
 
-	_, _, _, _, _, _, _, err := loadPack(
+	_, _, _, _, _, _, _, _, err := loadPack(
 		fsys.OSFS{},
 		filepath.Join(dir, "packs/a/pack.toml"),
 		filepath.Join(dir, "packs/a"),
@@ -2145,7 +2145,7 @@ includes = ["../nonexistent"]
 name = "alpha"
 `)
 
-	_, _, _, _, _, _, _, err := loadPack(
+	_, _, _, _, _, _, _, _, err := loadPack(
 		fsys.OSFS{},
 		filepath.Join(dir, "packs/main/pack.toml"),
 		filepath.Join(dir, "packs/main"),
@@ -2188,7 +2188,7 @@ command = "main-claude"
 name = "boss"
 `)
 
-	_, _, providers, _, _, _, _, err := loadPack(
+	_, _, providers, _, _, _, _, _, err := loadPack(
 		fsys.OSFS{},
 		filepath.Join(dir, "packs/main/pack.toml"),
 		filepath.Join(dir, "packs/main"),
@@ -2335,7 +2335,7 @@ name = "polecat"
 scope = "rig"
 `)
 
-	agents, _, _, _, _, _, _, err := loadPack(
+	agents, _, _, _, _, _, _, _, err := loadPack(
 		fsys.OSFS{}, filepath.Join(dir, "packs/test/pack.toml"),
 		filepath.Join(dir, "packs/test"), dir, "myrig", nil)
 	if err != nil {
@@ -3956,5 +3956,275 @@ depends_on = ["db"]
 	// Validation should pass since deps are now qualified.
 	if err := ValidateAgents(cfg.Agents); err != nil {
 		t.Errorf("ValidateAgents failed after pack expansion: %v", err)
+	}
+}
+
+func TestLoadPack_PermissionProfiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "packs/test/pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[permission_profiles.worker]
+description = "Claude Code agents"
+allow = ["Bash(*)", "Read(*)", "Write(*)"]
+deny = ["mcp__dangerous(*)"]
+skip_dangerous_prompt = true
+
+[permission_profiles.exec]
+description = "Shell-only agents"
+type = "exec"
+
+[[agent]]
+name = "coder"
+`)
+
+	_, _, _, _, _, _, _, profiles, err := loadPack(
+		fsys.OSFS{},
+		filepath.Join(dir, "packs/test/pack.toml"),
+		filepath.Join(dir, "packs/test"),
+		dir, "myrig", nil)
+	if err != nil {
+		t.Fatalf("loadPack: %v", err)
+	}
+
+	if len(profiles) != 2 {
+		t.Fatalf("got %d profiles, want 2", len(profiles))
+	}
+
+	worker := profiles["worker"]
+	if worker.Description != "Claude Code agents" {
+		t.Errorf("worker.Description = %q", worker.Description)
+	}
+	if len(worker.Allow) != 3 {
+		t.Errorf("worker.Allow = %v, want 3 entries", worker.Allow)
+	}
+	if len(worker.Deny) != 1 || worker.Deny[0] != "mcp__dangerous(*)" {
+		t.Errorf("worker.Deny = %v", worker.Deny)
+	}
+	if !worker.SkipDangerousPrompt {
+		t.Error("worker.SkipDangerousPrompt = false, want true")
+	}
+
+	exec := profiles["exec"]
+	if exec.Type != "exec" {
+		t.Errorf("exec.Type = %q, want %q", exec.Type, "exec")
+	}
+}
+
+func TestLoadPack_PermissionProfilesBackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "packs/test/pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[[agent]]
+name = "worker"
+`)
+
+	_, _, _, _, _, _, _, profiles, err := loadPack(
+		fsys.OSFS{},
+		filepath.Join(dir, "packs/test/pack.toml"),
+		filepath.Join(dir, "packs/test"),
+		dir, "myrig", nil)
+	if err != nil {
+		t.Fatalf("loadPack: %v", err)
+	}
+
+	if len(profiles) != 0 {
+		t.Errorf("got %d profiles for pack without permission_profiles, want 0", len(profiles))
+	}
+}
+
+func TestLoadPack_PermissionProfilesInheritFromInclude(t *testing.T) {
+	dir := t.TempDir()
+
+	// Base pack defines worker profile.
+	writeFile(t, dir, "packs/base/pack.toml", `
+[pack]
+name = "base"
+schema = 1
+
+[permission_profiles.worker]
+description = "Base worker profile"
+allow = ["Bash(*)"]
+skip_dangerous_prompt = true
+
+[[agent]]
+name = "helper"
+`)
+
+	// Main pack includes base and adds its own profile.
+	writeFile(t, dir, "packs/main/pack.toml", `
+[pack]
+name = "main"
+schema = 1
+includes = ["../base"]
+
+[permission_profiles.exec]
+description = "Shell-only"
+type = "exec"
+
+[[agent]]
+name = "coder"
+`)
+
+	_, _, _, _, _, _, _, profiles, err := loadPack(
+		fsys.OSFS{},
+		filepath.Join(dir, "packs/main/pack.toml"),
+		filepath.Join(dir, "packs/main"),
+		dir, "myrig", nil)
+	if err != nil {
+		t.Fatalf("loadPack: %v", err)
+	}
+
+	if len(profiles) != 2 {
+		t.Fatalf("got %d profiles, want 2 (worker from base, exec from main)", len(profiles))
+	}
+	if profiles["worker"].Description != "Base worker profile" {
+		t.Errorf("worker profile not inherited from include")
+	}
+	if profiles["exec"].Type != "exec" {
+		t.Errorf("exec profile not loaded from main")
+	}
+}
+
+func TestLoadPack_PermissionProfilesParentWins(t *testing.T) {
+	dir := t.TempDir()
+
+	// Base pack defines worker with base settings.
+	writeFile(t, dir, "packs/base/pack.toml", `
+[pack]
+name = "base"
+schema = 1
+
+[permission_profiles.worker]
+description = "Base worker"
+allow = ["Bash(*)"]
+
+[[agent]]
+name = "helper"
+`)
+
+	// Main pack overrides worker with its own definition.
+	writeFile(t, dir, "packs/main/pack.toml", `
+[pack]
+name = "main"
+schema = 1
+includes = ["../base"]
+
+[permission_profiles.worker]
+description = "Main worker"
+allow = ["Bash(*)", "Read(*)", "Write(*)"]
+skip_dangerous_prompt = true
+
+[[agent]]
+name = "coder"
+`)
+
+	_, _, _, _, _, _, _, profiles, err := loadPack(
+		fsys.OSFS{},
+		filepath.Join(dir, "packs/main/pack.toml"),
+		filepath.Join(dir, "packs/main"),
+		dir, "myrig", nil)
+	if err != nil {
+		t.Fatalf("loadPack: %v", err)
+	}
+
+	worker := profiles["worker"]
+	if worker.Description != "Main worker" {
+		t.Errorf("worker.Description = %q, want %q (parent should win)", worker.Description, "Main worker")
+	}
+	if len(worker.Allow) != 3 {
+		t.Errorf("worker.Allow = %v, want 3 entries (parent should win)", worker.Allow)
+	}
+}
+
+func TestExpandPacks_PermissionProfilesMerged(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFile(t, dir, "packs/test/pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[permission_profiles.worker]
+description = "Worker profile"
+allow = ["Bash(*)", "Read(*)"]
+skip_dangerous_prompt = true
+
+[[agent]]
+name = "coder"
+`)
+
+	cfg := &City{
+		Rigs: []Rig{
+			{Name: "myrig", Includes: []string{"packs/test"}},
+		},
+	}
+
+	if err := ExpandPacks(cfg, fsys.OSFS{}, dir, nil); err != nil {
+		t.Fatalf("ExpandPacks: %v", err)
+	}
+
+	if cfg.PermissionProfiles == nil {
+		t.Fatal("PermissionProfiles is nil after ExpandPacks")
+	}
+	if len(cfg.PermissionProfiles) != 1 {
+		t.Fatalf("got %d profiles, want 1", len(cfg.PermissionProfiles))
+	}
+	worker := cfg.PermissionProfiles["worker"]
+	if worker.Description != "Worker profile" {
+		t.Errorf("worker.Description = %q", worker.Description)
+	}
+	if !worker.SkipDangerousPrompt {
+		t.Error("worker.SkipDangerousPrompt = false, want true")
+	}
+}
+
+func TestExpandCityPacks_PermissionProfilesMerged(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFile(t, dir, "packs/test/pack.toml", `
+[pack]
+name = "test"
+schema = 1
+
+[permission_profiles.worker]
+description = "City worker"
+allow = ["Bash(*)"]
+skip_dangerous_prompt = true
+
+[permission_profiles.exec]
+description = "Shell-only"
+type = "exec"
+
+[[agent]]
+name = "mayor"
+scope = "city"
+`)
+
+	cfg := &City{
+		Workspace: Workspace{Includes: []string{"packs/test"}},
+	}
+
+	_, _, err := ExpandCityPacks(cfg, fsys.OSFS{}, dir)
+	if err != nil {
+		t.Fatalf("ExpandCityPacks: %v", err)
+	}
+
+	if cfg.PermissionProfiles == nil {
+		t.Fatal("PermissionProfiles is nil after ExpandCityPacks")
+	}
+	if len(cfg.PermissionProfiles) != 2 {
+		t.Fatalf("got %d profiles, want 2", len(cfg.PermissionProfiles))
+	}
+	if cfg.PermissionProfiles["worker"].Description != "City worker" {
+		t.Errorf("worker profile not loaded")
+	}
+	if cfg.PermissionProfiles["exec"].Type != "exec" {
+		t.Errorf("exec profile not loaded")
 	}
 }

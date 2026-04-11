@@ -923,6 +923,9 @@ func applyAgentOverride(a *Agent, ov *AgentOverride) {
 	if ov.Scope != nil {
 		a.Scope = *ov.Scope
 	}
+	if ov.PermissionProfile != nil {
+		a.PermissionProfile = *ov.PermissionProfile
+	}
 	if ov.Suspended != nil {
 		a.Suspended = *ov.Suspended
 	}
