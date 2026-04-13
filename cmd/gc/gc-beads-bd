@@ -347,6 +347,19 @@ quarantine_phantom_dbs() {
     done
 }
 
+# clean_corrupted_probe_db removes the __gc_probe database directory when it
+# is incomplete (missing .dolt/repo_state.json). This ephemeral health-check
+# database is always safe to delete — the server recreates it on demand via
+# check_read_only(). A corrupted probe dir crashes dolt on startup.
+clean_corrupted_probe_db() {
+    local probe_dir="$DATA_DIR/__gc_probe"
+    [ -d "$probe_dir" ] || return 0
+    if [ ! -f "$probe_dir/.dolt/repo_state.json" ]; then
+        echo "removing corrupted __gc_probe database (missing repo_state.json)" >&2
+        rm -rf "$probe_dir"
+    fi
+}
+
 # cleanup_stale_locks removes .dolt/noms/LOCK files not held by any process.
 cleanup_stale_locks() {
     [ -d "$DATA_DIR" ] || return 0
@@ -767,6 +780,7 @@ op_start() {
     # Pre-launch cleanup.
     clean_stale_sockets
     quarantine_phantom_dbs
+    clean_corrupted_probe_db
     cleanup_stale_locks
 
     # Write managed config.yaml with timeouts and GC settings.
