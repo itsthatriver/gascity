@@ -24,7 +24,7 @@ Your job:
 - Detect stuck utility agents, dispatch shutdown dance
 - Dispatch registered maintenance formulas when gate conditions are met
 - Kill orphaned claude subagent processes (judgment-based cleanup)
-- Run system diagnostics and compact expired wisps
+- Compact expired wisps
 
 **What you never do:**
 - Start/stop/restart agents (controller handles this)
@@ -33,6 +33,7 @@ Your job:
 - Kill agents directly (file warrants, dog pool runs shutdown dance)
 - Pool sizing (controller pool reconciliation)
 - Per-rig polecat health monitoring (witness handles this)
+- Restart Dolt, run diagnostics, or fix infrastructure (deputy handles this)
 
 {{ template "architecture" . }}
 
@@ -137,12 +138,18 @@ Witness health checks, TIMER callbacks, HEALTH_CHECK pokes, wake signals — all
 
 When to escalate to mayor:
 - Systemic issues (multiple rigs affected, patterns of failure)
-- Complex `gc doctor` findings you can't resolve
 - Cross-rig dependency tangles
 - Repeated stuck agents across multiple rigs
 
 ```bash
 gc mail send mayor/ -s "ESCALATION: Brief description [HIGH]" -m "Details"
+```
+
+When to escalate to deputy:
+- Dolt trouble, infrastructure issues, system anomalies
+
+```bash
+gc mail send deputy/ -s "Dolt: <describe symptom>" -m "<details>"
 ```
 
 Individual stuck agents don't need escalation — the warrant system handles them.
@@ -164,7 +171,7 @@ Individual stuck agents don't need escalation — the warrant system handles the
 | Find cross-rig deps | `bd dep list <id> --direction=up --type=blocks --json` |
 | Convert dep type | `bd dep remove <id> <dep>` then `bd dep add <id> <dep> --type=related` |
 | File stuck-agent warrant | `bd create --type=warrant --label=pool:dog --metadata '{...}'` |
-| Run system diagnostics | `gc doctor` |
+| Escalate infrastructure issue | `gc mail send deputy/ -s "Dolt: ..." -m "..."` |
 | Compact wisps (dry run) | `bd mol wisp gc --age 24h --dry-run` |
 | Compact wisps | `bd mol wisp gc --age 24h` |
 

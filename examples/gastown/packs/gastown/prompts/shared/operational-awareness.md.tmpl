@@ -12,34 +12,28 @@ Your role is determined by the GC_AGENT environment variable and injected by
 
 ### Dolt Server
 
-Dolt is the data plane for beads (issues, mail, work history). Gas City runs
-Dolt in **server mode** by default — a single `dolt sql-server` process serves
-all databases for the city. Server mode is the expected configuration; embedded
-mode causes write-lock contention under concurrent agent writes. **The server
-is fragile.**
+Dolt is the data plane for beads (issues, mail, work history). It is fragile.
 
 If you detect Dolt trouble (commands hang/timeout, "connection refused",
 "database not found", query latency > 5s, unexpected empty results):
 
-**BEFORE restarting Dolt, collect diagnostics.** Dolt hangs are hard to
-reproduce. A blind restart destroys the evidence. Always:
+**Mail deputy immediately with symptoms. Do NOT investigate or fix it yourself.**
 
 ```bash
-# 1. Capture goroutine dump (safe — does not kill the process)
-kill -QUIT $(cat {{ .CityRoot }}/.gc/runtime/packs/dolt/dolt.pid)
-
-# 2. Capture server status while it's still (mis)behaving
-gc dolt status 2>&1 | tee /tmp/dolt-hang-$(date +%s).log
-
-# 3. THEN escalate with the evidence
-gc mail send mayor -s "Dolt: <describe symptom>" -m "<paste evidence>"
+gc mail send deputy/ -s "Dolt: <describe symptom>" -m "$(cat <<'EOF'
+Symptom: <what you observed>
+Command: <what you were running>
+Error: <exact error message if any>
+EOF
+)"
 ```
 
-**Do NOT just `gc dolt stop && gc dolt start` without steps 1-2.**
-
-Orphan databases (testdb_*, beads_t*, beads_pt*) accumulate on the production
-server and degrade performance. Use `gc dolt cleanup` to remove them safely.
-**Never use `rm -rf` on Dolt data directories.**
+**Rules:**
+- **Never** restart Dolt, kill Dolt processes, or run `gc dolt` commands
+- **Never** clean up orphan databases or modify Dolt data directories
+- **Never** collect goroutine dumps or run diagnostics yourself
+- Include the symptom, the command that failed, and the error message
+- After mailing deputy, continue your work if possible or wait for a reply
 
 ### Communication: Nudge First, Mail Rarely
 
@@ -75,5 +69,5 @@ EOF
 - Nudge, don't mail for routine communication
 - Don't create unnecessary beads — file real work, not scratchpads
 - Close your beads — open beads that linger become pollution
-- When Dolt is slow/down: check `gc doctor`, nudge Deacon — don't restart Dolt yourself
+- When Dolt is slow/down: **mail deputy immediately** — do NOT restart Dolt yourself, do NOT investigate yourself
 {{ end }}

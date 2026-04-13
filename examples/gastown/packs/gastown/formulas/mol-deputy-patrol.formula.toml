@@ -1,0 +1,240 @@
+description = """
+Deputy patrol loop. Poured as a root-only wisp on startup:
+
+  bd mol wisp mol-deputy-patrol --root-only
+  bd update $WISP --assignee=$GC_AGENT
+
+Each wisp is ONE iteration: handle escalations, check infrastructure
+health, pour the next iteration. On crash, re-read the formula steps
+and determine where you left off from context.
+
+Formula steps are NOT materialized as child beads. Read the step
+descriptions below and work through them in order.
+
+The loop mechanism: every exit path (happy or early) pours the next
+wisp before burning this one. The prompt only bootstraps the first wisp.
+
+## Deputy Role
+
+The deputy is the **single writer for city infrastructure**. All other
+agents escalate infrastructure issues to the deputy via mail. The deputy
+handles diagnostics, fixes, and tracks incident patterns.
+
+1. **Escalation handling** — process mail from agents reporting issues.
+   Known issues get workaround replies. Unknown issues get root-caused.
+2. **Dolt health** — proactive monitoring of the Dolt data plane.
+3. **System diagnostics** — run `gc doctor` and act on findings.
+
+## What the deputy does NOT do
+
+- Write code or fix bugs (polecats do this)
+- Manage work-layer health (witnesses and deacon do this)
+- Check gates or convoy completion (deacon handles coordination)
+- Kill coding agents directly (files warrants, dog pool runs shutdown dance)
+
+Read each step's description before acting."""
+formula = "mol-deputy-patrol"
+version = 1
+
+[vars]
+[vars.event_timeout]
+description = "Seconds to wait for events before re-checking (exponential backoff)"
+default = "30"
+
+[[steps]]
+id = "check-inbox"
+title = "Context check, then handle escalations"
+description = """
+**1. Context check (FIRST -- before any work):**
+```bash
+RSS=$(ps -o rss= -p $$ | tr -d ' ')
+RSS_MB=$((RSS / 1024))
+```
+
+If RSS > 1500 MB or context feels heavy, request a restart:
+```bash
+gc runtime request-restart
+```
+This sets `GC_RESTART_REQUESTED` metadata on the session and blocks
+forever. The controller will kill and restart the session on the next
+reconcile tick.
+
+**2. Check mail:**
+```bash
+gc mail inbox
+```
+
+Handle each message type:
+
+**Infrastructure escalation (Dolt trouble, system issues):**
+1. Identify the issue from the agent's report
+2. Determine if this is a known issue:
+   - **Known + workaround**: Reply with workaround. Archive.
+   - **Known + no fix**: Log recurrence. If 3+ occurrences, escalate to Mayor. Archive.
+   - **Unknown**: Root-cause the issue in subsequent patrol steps. Archive after resolution.
+3. Track the pattern for future reference.
+
+```bash
+gc mail reply <id> -s "RE: <subject>" -m "<resolution or workaround>"
+gc mail archive <id>
+```
+
+**Other / informational:**
+Archive after reading.
+
+**Hygiene principle**: Archive messages after they're fully processed.
+Inbox should be near-empty after this step.
+
+Close this step and proceed."""
+
+[[steps]]
+id = "dolt-health"
+title = "Run Dolt data-plane health check"
+needs = ["check-inbox"]
+description = """
+Run `gc dolt health --json` to inspect the Dolt data plane and flag anomalies.
+
+This step surfaces problems that agents may not report: commit bloat
+(compactor dog may have failed), stale backups (backup dog may have
+failed), orphan databases, and zombie Dolt server processes.
+
+**Step 1: Run the health check**
+```bash
+gc dolt health --json
+```
+
+Parse the JSON output (HealthReport schema):
+- `server`: running, pid, port, latency_ms
+- `databases[]`: name, commits, open_beads
+- `backups`: dolt_freshness, dolt_age_seconds, dolt_stale
+- `processes`: zombie_count, zombie_pids
+- `orphans[]`: name, size
+
+**Step 2: Evaluate thresholds**
+
+| Signal | Threshold | Meaning |
+|--------|-----------|---------|
+| `server.running == false` | -- | Dolt server is down (CRITICAL) |
+| `server.latency_ms > 5000` | 5 s | Server may be overloaded |
+| `databases[].commits > 50000` | 50 k | Compactor dog may have stalled |
+| `backups.dolt_stale == true` | >30 min | Backup dog may have failed |
+| `processes.zombie_count > 0` | any | Zombie Dolt servers detected |
+| `orphans` non-empty | any | Orphan databases accumulating |
+
+**Step 3: React to alerts**
+
+**Server down (CRITICAL):**
+Collect diagnostics first, then restart:
+```bash
+gc dolt status 2>&1 | tee /tmp/dolt-diag-$(date +%s).log
+gc dolt stop && gc dolt start
+```
+If restart fails, escalate to Mayor:
+```bash
+gc mail send mayor/ -s "ESCALATION: Dolt server unrecoverable [CRITICAL]" \\
+  -m "Diagnostics collected. Restart failed. <details>"
+```
+
+**Commit bloat (commits > 50k in any DB):**
+The compactor dog (`mol-dog-compactor`) may have failed. Log for awareness.
+If the compactor order is configured, it will self-dispatch. Otherwise
+nudge the dog pool:
+```bash
+gc nudge dog/ "Compactor needed: <db_name> has <count> commits"
+```
+
+**Stale backups:**
+The backup dog (`mol-dog-backup`) may have failed. Same pattern -- log and
+nudge if order hasn't self-healed:
+```bash
+gc nudge dog/ "Backup needed: dolt backup is <age> old"
+```
+
+**Zombie processes:**
+Kill zombie Dolt servers not on the expected port:
+```bash
+kill <zombie_pid>
+```
+
+**Orphan DBs:**
+Run cleanup:
+```bash
+gc dolt cleanup
+```
+If orphan count exceeds safety limit, escalate to Mayor.
+
+**If everything is healthy:**
+Log `Dolt health: OK` and move on.
+
+**Exit criteria:** Health check run, alerts handled or escalated."""
+
+[[steps]]
+id = "system-health"
+title = "Run system diagnostics"
+needs = ["dolt-health"]
+description = """
+Run `gc doctor` for a quick workspace health check.
+
+```bash
+gc doctor
+```
+
+**For simple findings:** Act directly (e.g., stale lock files, temp
+directory cleanup).
+
+**For complex findings:** Escalate to Mayor with context:
+```bash
+gc mail send mayor/ -s "DOCTOR: <finding>" -m "<details>"
+```
+
+Close this step after check."""
+
+[[steps]]
+id = "next-iteration"
+title = "Pour next iteration and loop"
+needs = ["system-health"]
+description = """
+**Config: event_timeout = {{event_timeout}}**
+
+End of patrol cycle. Pour the next iteration, then wait or exit.
+
+**1. Context check:**
+
+If context feels heavy or RSS is high:
+```bash
+gc runtime request-restart
+```
+This blocks forever. The controller restarts you. The next wisp
+is already assigned -- the new session resumes from context.
+
+**2. Quick inbox check (end-of-cycle hygiene):**
+```bash
+gc mail inbox
+```
+Handle any urgent escalations that arrived during patrol. Archive the rest.
+
+**3. Pour next iteration BEFORE burning:**
+```bash
+NEXT=$(bd mol wisp mol-deputy-patrol --root-only --json | jq -r '.new_epic_id')
+bd update "$NEXT" --assignee=$GC_AGENT
+```
+
+**4. Wait for activity (exponential backoff):**
+```bash
+SEQ=$(gc events --seq)
+gc events --watch --type=bead.updated \
+  --after=$SEQ --timeout {{event_timeout}}s
+```
+
+On event: proceed immediately (may be an escalation).
+On timeout: double the timeout (cap 300s) and proceed anyway.
+
+**5. Burn this wisp:**
+```bash
+bd mol burn <this-wisp-id> --force
+```
+
+The new wisp is ready. Re-read formula steps to start
+the next patrol cycle.
+
+**Exit criteria:** Next wisp poured, this wisp burned."""
