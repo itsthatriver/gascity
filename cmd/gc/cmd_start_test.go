@@ -35,11 +35,23 @@ func TestPassthroughEnvIncludesPath(t *testing.T) {
 	}
 }
 
-func TestPassthroughEnvPicksUpGCBeads(t *testing.T) {
-	t.Setenv("GC_BEADS", "file")
+func TestPassthroughEnvSkipsControllerOnlyVars(t *testing.T) {
+	for _, key := range []string{
+		"GC_BEADS", "GC_SESSION", "GC_EVENTS",
+		"GC_DOLT_HOST", "GC_DOLT_PORT",
+		"BEADS_DOLT_SERVER_HOST", "BEADS_DOLT_SERVER_PORT",
+	} {
+		t.Setenv(key, "should-be-skipped")
+	}
 	got := passthroughEnv()
-	if got["GC_BEADS"] != "file" {
-		t.Errorf("passthroughEnv()[GC_BEADS] = %q, want %q", got["GC_BEADS"], "file")
+	for _, key := range []string{
+		"GC_BEADS", "GC_SESSION", "GC_EVENTS",
+		"GC_DOLT_HOST", "GC_DOLT_PORT",
+		"BEADS_DOLT_SERVER_HOST", "BEADS_DOLT_SERVER_PORT",
+	} {
+		if _, ok := got[key]; ok {
+			t.Errorf("passthroughEnv() should skip controller-only var %s", key)
+		}
 	}
 }
 
@@ -134,28 +146,30 @@ func TestPassthroughEnvDoltConnectionVars(t *testing.T) {
 
 	got := passthroughEnv()
 
-	for _, key := range []string{"GC_DOLT_HOST", "GC_DOLT_PORT", "GC_DOLT_USER", "GC_DOLT_PASSWORD"} {
+	// HOST and PORT are controller-only and should be skipped.
+	for _, key := range []string{"GC_DOLT_HOST", "GC_DOLT_PORT"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("passthroughEnv() should skip controller-only var %s", key)
+		}
+	}
+	// USER and PASSWORD are agent credentials and should pass through.
+	for _, key := range []string{"GC_DOLT_USER", "GC_DOLT_PASSWORD"} {
 		if _, ok := got[key]; !ok {
 			t.Errorf("passthroughEnv() missing %s", key)
 		}
 	}
-	if got["GC_DOLT_HOST"] != "dolt.gc.svc.cluster.local" {
-		t.Errorf("GC_DOLT_HOST = %q, want %q", got["GC_DOLT_HOST"], "dolt.gc.svc.cluster.local")
-	}
-	if got["GC_DOLT_PORT"] != "3307" {
-		t.Errorf("GC_DOLT_PORT = %q, want %q", got["GC_DOLT_PORT"], "3307")
-	}
 }
 
 func TestPassthroughEnvOmitsUnsetDoltVars(t *testing.T) {
-	// Ensure the vars are NOT set.
-	for _, key := range []string{"GC_DOLT_HOST", "GC_DOLT_PORT", "GC_DOLT_USER", "GC_DOLT_PASSWORD"} {
+	// HOST/PORT are always skipped (controller-only). Verify USER/PASSWORD
+	// are omitted when empty (standard empty-value filter).
+	for _, key := range []string{"GC_DOLT_USER", "GC_DOLT_PASSWORD"} {
 		t.Setenv(key, "")
 	}
 
 	got := passthroughEnv()
 
-	for _, key := range []string{"GC_DOLT_HOST", "GC_DOLT_PORT", "GC_DOLT_USER", "GC_DOLT_PASSWORD"} {
+	for _, key := range []string{"GC_DOLT_USER", "GC_DOLT_PASSWORD"} {
 		if _, ok := got[key]; ok {
 			t.Errorf("passthroughEnv() should omit empty %s", key)
 		}

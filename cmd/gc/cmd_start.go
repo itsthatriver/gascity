@@ -904,12 +904,30 @@ func passthroughEnv() map[string]string {
 	// included in the global baseline because the SDK cannot know which
 	// agent uses which provider (zero hardcoded roles); the trust boundary
 	// is the managed session itself.
+	//
+	// Controller-only vars are excluded — they reference controller-side
+	// infrastructure (lifecycle beads provider, session handle, event bus)
+	// that agents must not inherit. mergeEnv in template_resolve.go sets
+	// the correct agent-side values (agentEnv wins, applied last).
+	// Mirrors buildPodEnv skip list in internal/runtime/k8s/pod.go.
+	skip := map[string]bool{
+		"GC_BEADS":               true,
+		"GC_SESSION":             true,
+		"GC_EVENTS":              true,
+		"GC_DOLT_HOST":           true,
+		"GC_DOLT_PORT":           true,
+		"BEADS_DOLT_SERVER_HOST": true,
+		"BEADS_DOLT_SERVER_PORT": true,
+	}
 	for _, entry := range os.Environ() {
 		key, val, ok := strings.Cut(entry, "=")
 		if !ok || val == "" {
 			continue
 		}
 		if strings.HasPrefix(key, "GC_") || strings.HasPrefix(key, "ANTHROPIC_") {
+			if skip[key] {
+				continue
+			}
 			m[key] = val
 		}
 	}
