@@ -592,8 +592,8 @@ func TestAllPromptTemplatesExist(t *testing.T) {
 		})
 	}
 
-	if count != 7 {
-		t.Errorf("found %d prompt template files, want 7", count)
+	if count != 8 {
+		t.Errorf("found %d prompt template files, want 8", count)
 	}
 }
 
@@ -732,9 +732,9 @@ func TestCombinedPackParses(t *testing.T) {
 		t.Errorf("[pack] schema = %d, want 1", tc.Pack.Schema)
 	}
 
-	// Expect 7 agents: gastown's own 6 + themed dog (overrides maintenance fallback).
+	// Expect 8 agents: gastown's own 7 + themed dog (overrides maintenance fallback).
 	want := map[string]bool{
-		"mayor": false, "deacon": false, "boot": false,
+		"mayor": false, "deacon": false, "deputy": false, "boot": false,
 		"witness": false, "refinery": false, "polecat": false,
 		"dog": false,
 	}
@@ -750,12 +750,12 @@ func TestCombinedPackParses(t *testing.T) {
 			t.Errorf("missing pack agent %q", name)
 		}
 	}
-	if len(tc.Agents) != 7 {
-		t.Errorf("pack has %d agents, want 7", len(tc.Agents))
+	if len(tc.Agents) != 8 {
+		t.Errorf("pack has %d agents, want 8", len(tc.Agents))
 	}
 
 	// Verify city-scoped agents have scope = "city".
-	wantCity := map[string]bool{"mayor": true, "deacon": true, "boot": true, "dog": true}
+	wantCity := map[string]bool{"mayor": true, "deacon": true, "deputy": true, "boot": true, "dog": true}
 	for _, a := range tc.Agents {
 		if wantCity[a.Name] && a.Scope != "city" {
 			t.Errorf("agent %q: scope = %q, want %q", a.Name, a.Scope, "city")
@@ -824,10 +824,10 @@ func TestPackPromptFilesExist(t *testing.T) {
 func TestCityAgentsFilter(t *testing.T) {
 	// Verify config.LoadWithIncludes with both packs produces
 	// only city-scoped agents when no rigs are registered.
-	// Dog from maintenance + mayor/deacon/boot from gastown = 4.
+	// Dog from maintenance + mayor/deacon/deputy/boot from gastown = 5.
 	cfg := loadExpanded(t)
 
-	cityAgents := map[string]bool{"mayor": true, "deacon": true, "boot": true, "dog": true}
+	cityAgents := map[string]bool{"mayor": true, "deacon": true, "deputy": true, "boot": true, "dog": true}
 	var explicit int
 	for _, a := range cfg.Agents {
 		if a.Implicit {
@@ -841,8 +841,8 @@ func TestCityAgentsFilter(t *testing.T) {
 			t.Errorf("city agent %q: dir = %q, want empty", a.Name, a.Dir)
 		}
 	}
-	if explicit != 4 {
-		t.Errorf("got %d explicit agents, want 4 city-scoped agents", explicit)
+	if explicit != 5 {
+		t.Errorf("got %d explicit agents, want 5 city-scoped agents", explicit)
 	}
 }
 
