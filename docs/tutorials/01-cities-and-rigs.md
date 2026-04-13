@@ -183,7 +183,10 @@ Rig added.
 ```
 
 Gas City derived the rig name from the directory basename (`my-project`) and set
-up work tracking in it. You can see the new entry in `city.toml`:
+up work tracking in it. Behind the scenes, the rig's bead store is configured to
+use the city's Dolt server (server mode is the default — no manual setup needed).
+
+You can see the new entry in `city.toml`:
 
 ```shell
 

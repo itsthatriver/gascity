@@ -22,6 +22,19 @@ cd ~/bright-lights
 `gc init` bootstraps the city directory, registers it with the supervisor, and
 starts the controller. The city is running as soon as init completes.
 
+Gas City runs Dolt in **server mode** by default — a single `dolt sql-server`
+process serves all databases for the city. Server mode avoids the write-lock
+contention that embedded mode hits when multiple agents write concurrently.
+
+No manual configuration is required. The `[dolt]` section in `city.toml` is
+optional and only needed to override the defaults:
+
+```toml
+[dolt]
+host = "localhost"   # default; set to a remote host for shared Dolt servers
+port = 0             # default; 0 = ephemeral port hashed from city path
+```
+
 ## 2. Add a Rig
 
 ```bash
