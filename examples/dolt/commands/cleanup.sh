@@ -36,13 +36,29 @@ if [ ! -d "$data_dir" ]; then
   exit 0
 fi
 
-# Collect referenced database names from metadata.json files.
+# Collect referenced database names from all rig metadata.json files.
+# Use gc rig list to discover rigs at external paths (not just under GC_CITY_PATH).
 referenced=""
-for meta in "$GC_CITY_PATH"/.beads/metadata.json "$GC_CITY_PATH"/rigs/*/.beads/metadata.json; do
-  [ -f "$meta" ] || continue
-  db=$(grep -o '"dolt_database"[[:space:]]*:[[:space:]]*"[^"]*"' "$meta" 2>/dev/null | sed 's/.*"dolt_database"[[:space:]]*:[[:space:]]*"//;s/"//' || true)
+_collect_db() {
+  meta="$1"
+  [ -f "$meta" ] || return 0
+  db=$(jq -r '.dolt_database // empty' "$meta" 2>/dev/null || true)
   [ -n "$db" ] && referenced="$referenced $db "
-done
+}
+
+rig_paths=$(gc rig list --json 2>/dev/null | jq -r '.rigs[].path' 2>/dev/null || true)
+if [ -n "$rig_paths" ]; then
+  # gc rig list available — iterate all known rigs.
+  for rp in $rig_paths; do
+    _collect_db "$rp/.beads/metadata.json"
+  done
+else
+  # Fallback: scan city path and rigs/ subdirectory (legacy layout).
+  _collect_db "$GC_CITY_PATH/.beads/metadata.json"
+  for meta in "$GC_CITY_PATH"/rigs/*/.beads/metadata.json; do
+    _collect_db "$meta"
+  done
+fi
 
 # Find orphans.
 orphans=""
@@ -54,16 +70,14 @@ for d in "$data_dir"/*/; do
   case "$referenced" in
     *" $name "*) continue ;; # referenced, not orphan
   esac
-  # Calculate size.
-  size_bytes=$(du -sb "$d" 2>/dev/null | cut -f1 || echo 0)
-  if [ "$size_bytes" -ge 1073741824 ]; then
-    size=$(awk "BEGIN {printf \"%.1f GB\", $size_bytes/1073741824}")
-  elif [ "$size_bytes" -ge 1048576 ]; then
-    size=$(awk "BEGIN {printf \"%.1f MB\", $size_bytes/1048576}")
-  elif [ "$size_bytes" -ge 1024 ]; then
-    size=$(awk "BEGIN {printf \"%.1f KB\", $size_bytes/1024}")
+  # Calculate size (du -sk is POSIX-portable; du -sb is GNU-only).
+  size_kb=$(du -sk "$d" 2>/dev/null | cut -f1 || echo 0)
+  if [ "$size_kb" -ge 1048576 ]; then
+    size=$(awk "BEGIN {printf \"%.1f GB\", $size_kb/1048576}")
+  elif [ "$size_kb" -ge 1024 ]; then
+    size=$(awk "BEGIN {printf \"%.1f MB\", $size_kb/1024}")
   else
-    size="${size_bytes} B"
+    size="${size_kb} KB"
   fi
   orphans="$orphans$name|$size|$d
 "
