@@ -36,13 +36,22 @@ if [ ! -d "$data_dir" ]; then
   exit 0
 fi
 
-# Collect referenced database names from metadata.json files.
+# Collect referenced database names from routes.jsonl (rig prefix registry).
 referenced=""
-for meta in "$GC_CITY_PATH"/.beads/metadata.json "$GC_CITY_PATH"/rigs/*/.beads/metadata.json; do
-  [ -f "$meta" ] || continue
-  db=$(grep -o '"dolt_database"[[:space:]]*:[[:space:]]*"[^"]*"' "$meta" 2>/dev/null | sed 's/.*"dolt_database"[[:space:]]*:[[:space:]]*"//;s/"//' || true)
-  [ -n "$db" ] && referenced="$referenced $db "
-done
+routes_file="$GC_CITY_PATH/.beads/routes.jsonl"
+if [ -f "$routes_file" ]; then
+  while IFS= read -r line; do
+    prefix=$(printf '%s' "$line" | sed -n 's/.*"prefix"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    [ -n "$prefix" ] && referenced="$referenced $prefix "
+  done < "$routes_file"
+fi
+
+# Fail-safe: if no referenced databases found, refuse to run.
+if [ -z "$referenced" ]; then
+  echo "gc dolt cleanup: no referenced databases found in routes.jsonl — refusing to run" >&2
+  echo "  (routes file: $routes_file)" >&2
+  exit 1
+fi
 
 # Find orphans.
 orphans=""
@@ -54,8 +63,9 @@ for d in "$data_dir"/*/; do
   case "$referenced" in
     *" $name "*) continue ;; # referenced, not orphan
   esac
-  # Calculate size.
-  size_bytes=$(du -sb "$d" 2>/dev/null | cut -f1 || echo 0)
+  # Calculate size (macOS-compatible: du -sk, not du -sb).
+  size_kb=$(du -sk "$d" 2>/dev/null | cut -f1 || echo 0)
+  size_bytes=$((size_kb * 1024))
   if [ "$size_bytes" -ge 1073741824 ]; then
     size=$(awk "BEGIN {printf \"%.1f GB\", $size_bytes/1073741824}")
   elif [ "$size_bytes" -ge 1048576 ]; then
