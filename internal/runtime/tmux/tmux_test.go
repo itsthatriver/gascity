@@ -1264,8 +1264,13 @@ func TestCollectReparentedGroupMembers(t *testing.T) {
 		if rpid == pid {
 			t.Errorf("collectReparentedGroupMembers returned known PID %s", pid)
 		}
-		// Each reparented PID should have PPID == 1
+		// Each reparented PID should have PPID == 1.
+		// The process may have exited between collection and this check
+		// (TOCTOU race), so skip verification if getParentPID returns empty.
 		ppid := getParentPID(rpid)
+		if ppid == "" {
+			continue // process exited between collection and verification
+		}
 		if ppid != "1" {
 			t.Errorf("collectReparentedGroupMembers returned PID %s with PPID %s (expected 1)", rpid, ppid)
 		}
