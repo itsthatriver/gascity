@@ -2922,6 +2922,41 @@ func TestReconcileSessionBeads_ConfigDriftAppliesAfterDetach(t *testing.T) {
 	}
 }
 
+// --- sessionAttachedForConfigDrift unit tests ---
+
+func TestSessionAttachedForConfigDrift_NilProvider(t *testing.T) {
+	b := beads.Bead{ID: "test-session"}
+	if sessionAttachedForConfigDrift(b, nil, "", nil, nil, "worker") {
+		t.Error("expected false when provider is nil")
+	}
+}
+
+func TestSessionAttachedForConfigDrift_IsAttachedFallback(t *testing.T) {
+	sp := runtime.NewFake()
+	_ = sp.Start(context.Background(), "worker", runtime.Config{Command: "test-cmd"})
+	sp.SetAttached("worker", true)
+	store := beads.NewMemStore()
+	b := beads.Bead{ID: "nonexistent-session-id"}
+
+	// workerSessionTargetAttachedWithConfig will error (no matching session bead),
+	// so the function should fall back to sp.IsAttached(name).
+	if !sessionAttachedForConfigDrift(b, sp, "", store, nil, "worker") {
+		t.Error("expected true via IsAttached fallback")
+	}
+}
+
+func TestSessionAttachedForConfigDrift_NotAttached(t *testing.T) {
+	sp := runtime.NewFake()
+	_ = sp.Start(context.Background(), "worker", runtime.Config{Command: "test-cmd"})
+	sp.SetAttached("worker", false)
+	store := beads.NewMemStore()
+	b := beads.Bead{ID: "nonexistent-session-id"}
+
+	if sessionAttachedForConfigDrift(b, sp, "", store, nil, "worker") {
+		t.Error("expected false when session is not attached")
+	}
+}
+
 // --- idle timeout in bead reconciler tests ---
 
 func TestReconcileSessionBeads_IdleTimeoutStopsAndStaysAsleep(t *testing.T) {
