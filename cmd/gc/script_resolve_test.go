@@ -196,6 +196,49 @@ func TestResolveScripts_StaleCleanup(t *testing.T) {
 	}
 }
 
+func TestResolveScripts_NonDanglingSymlinkPreserved(t *testing.T) {
+	dir := t.TempDir()
+	layer1 := filepath.Join(dir, "pack1", "scripts")
+	layer2 := filepath.Join(dir, "pack2", "scripts")
+	writeScriptFile(t, layer1, "gate-sweep.sh", "#!/bin/sh\necho gate-sweep")
+	writeScriptFile(t, layer2, "other.sh", "#!/bin/sh\necho other")
+
+	target := filepath.Join(dir, "city")
+	os.MkdirAll(target, 0o755) //nolint:errcheck
+
+	// First pass: both layers active — creates symlinks for both scripts.
+	if err := ResolveScripts(target, []string{layer1, layer2}); err != nil {
+		t.Fatalf("first ResolveScripts: %v", err)
+	}
+
+	// Verify both symlinks exist.
+	for _, name := range []string{"gate-sweep.sh", "other.sh"} {
+		if _, err := os.Lstat(filepath.Join(target, "scripts", name)); err != nil {
+			t.Fatalf("%s should exist after first pass: %v", name, err)
+		}
+	}
+
+	// Second pass: only layer2 active. Layer1 removed from config, but
+	// the underlying file (pack1/scripts/gate-sweep.sh) still exists.
+	// This simulates a pack reconfiguration where the pack scripts dir
+	// is removed from ScriptLayers but not deleted from disk.
+	if err := ResolveScripts(target, []string{layer2}); err != nil {
+		t.Fatalf("second ResolveScripts: %v", err)
+	}
+
+	// gate-sweep.sh symlink should be preserved — its target is still a
+	// valid file. Removing it would break exec orders that reference
+	// $PACK_DIR/scripts/gate-sweep.sh.
+	if _, err := os.Lstat(filepath.Join(target, "scripts", "gate-sweep.sh")); err != nil {
+		t.Error("gate-sweep.sh should be preserved (non-dangling symlink)")
+	}
+
+	// other.sh should still exist (it's in the active layer).
+	if _, err := os.Lstat(filepath.Join(target, "scripts", "other.sh")); err != nil {
+		t.Errorf("other.sh should still exist: %v", err)
+	}
+}
+
 func TestResolveScripts_RealFileNotOverwritten(t *testing.T) {
 	dir := t.TempDir()
 	layer := filepath.Join(dir, "pack", "scripts")

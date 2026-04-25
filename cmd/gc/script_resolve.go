@@ -87,15 +87,20 @@ func ResolveScripts(targetDir string, layers []string) error {
 	return cleanStaleScriptSymlinks(symlinkDir, winners)
 }
 
-// cleanStaleScriptSymlinks removes symlinks in symlinkDir that are not in
-// winners. Walks recursively and removes empty subdirectories afterward.
+// cleanStaleScriptSymlinks removes dangling symlinks in symlinkDir that are
+// not in winners. Walks recursively and removes empty subdirectories afterward.
 // Skips non-symlinks. No-op if symlinkDir doesn't exist.
+//
+// A symlink not in winners is only removed if its target no longer exists
+// (dangling). Non-dangling symlinks are preserved even when absent from the
+// current layer configuration — removing functional symlinks can break exec
+// orders that reference scripts through the resolved symlink directory.
 func cleanStaleScriptSymlinks(symlinkDir string, winners map[string]string) error {
 	if _, err := os.Stat(symlinkDir); os.IsNotExist(err) {
 		return nil
 	}
 
-	// Collect stale symlinks.
+	// Collect stale symlinks (dangling only).
 	var stale []string
 	err := filepath.WalkDir(symlinkDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -113,7 +118,12 @@ func cleanStaleScriptSymlinks(symlinkDir string, winners map[string]string) erro
 			return nil
 		}
 		if _, isWinner := winners[rel]; !isWinner {
-			stale = append(stale, path)
+			// Only prune if the symlink target no longer exists.
+			// Non-dangling symlinks may still be referenced by exec
+			// orders even after a layer reconfiguration.
+			if _, statErr := os.Stat(path); statErr != nil {
+				stale = append(stale, path)
+			}
 		}
 		return nil
 	})
