@@ -10,15 +10,20 @@ import (
 
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/fsys"
+	"github.com/gastownhall/gascity/internal/orders"
 )
 
 // pruneLegacyConfiguredScripts removes symlink-only top-level scripts/
 // directories left behind by the old ResolveScripts compatibility shim.
-// Real user-authored files are preserved.
+// Real user-authored files are preserved. Pruning is skipped for any scope
+// whose active exec orders reference $PACK_DIR/scripts/, since removing
+// the symlinks would break those orders.
 func pruneLegacyConfiguredScripts(cityPath string, cfg *config.City, handleErr func(scope string, err error)) {
 	cityOrigins := legacyScriptOriginsForScope(cityPath, cfg.PackDirs)
-	if err := pruneLegacyScripts(cityPath, cityOrigins, cityPath); err != nil {
-		handleErr("city", err)
+	if !execOrdersRefPackDirScripts(cityPath, cfg) {
+		if err := pruneLegacyScripts(cityPath, cityOrigins, cityPath); err != nil {
+			handleErr("city", err)
+		}
 	}
 	for _, r := range cfg.Rigs {
 		rigPath := strings.TrimSpace(r.Path)
@@ -34,6 +39,32 @@ func pruneLegacyConfiguredScripts(cityPath string, cfg *config.City, handleErr f
 			handleErr(fmt.Sprintf("rig %q", r.Name), err)
 		}
 	}
+}
+
+// execOrdersRefPackDirScripts reports whether any active exec orders for
+// the city scope reference $PACK_DIR/scripts/ in their exec commands.
+// When true, pruning the city-root scripts/ directory would break those
+// orders because PACK_DIR resolves to the city root for city-local orders.
+func execOrdersRefPackDirScripts(cityPath string, cfg *config.City) bool {
+	roots := cityOrderRoots(cityPath, cfg)
+	aa, err := orders.ScanRoots(fsys.OSFS{}, roots, cfg.Orders.Skip)
+	if err != nil {
+		return false
+	}
+	for _, a := range aa {
+		if a.IsExec() && execRefsScopeScripts(a.Exec) {
+			return true
+		}
+	}
+	return false
+}
+
+// execRefsScopeScripts reports whether a shell exec string references
+// $PACK_DIR/scripts or ${PACK_DIR}/scripts — the pattern that resolves
+// through the city-root scripts/ symlink shim.
+func execRefsScopeScripts(exec string) bool {
+	return strings.Contains(exec, "$PACK_DIR/scripts") ||
+		strings.Contains(exec, "${PACK_DIR}/scripts")
 }
 
 // pruneLegacyScripts removes a top-level scripts/ directory only when it

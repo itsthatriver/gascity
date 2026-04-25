@@ -264,6 +264,12 @@ func (v2ScriptsLayoutCheck) Run(ctx *doctor.CheckContext) *doctor.CheckResult {
 					[]string{"scripts/"})
 			}
 			if legacyShim {
+				if execOrdersRefPackDirScriptsForCity(ctx.CityPath) {
+					return warnCheck("v2-scripts-layout",
+						"top-level scripts/ contains legacy symlinks still referenced by active exec orders via $PACK_DIR/scripts/",
+						"migrate order exec commands to reference pack scripts directly (e.g., absolute paths) before removing the shim",
+						[]string{"scripts/"})
+				}
 				return warnCheck("v2-scripts-layout",
 					"top-level scripts/ only contains stale legacy symlinks",
 					"delete scripts/ or rerun gc start/gc supervisor so runtime pruning can remove the old shim",
@@ -326,6 +332,17 @@ func legacyTopLevelScriptsShim(cityPath string) (bool, error) {
 	origins := legacyScriptOriginsForScope(cityPath, cfg.PackDirs)
 	_, ok, err := legacyShimLinks(cityPath, origins, cityPath)
 	return ok, err
+}
+
+// execOrdersRefPackDirScriptsForCity loads the city config and checks whether
+// any active exec orders reference $PACK_DIR/scripts/. Used by the doctor
+// check to provide context-aware migration guidance.
+func execOrdersRefPackDirScriptsForCity(cityPath string) bool {
+	cfg, _, err := config.LoadWithIncludes(fsys.OSFS{}, filepath.Join(cityPath, "city.toml"))
+	if err != nil {
+		return false
+	}
+	return execOrdersRefPackDirScripts(cityPath, cfg)
 }
 
 type v2WorkspaceNameCheck struct{}

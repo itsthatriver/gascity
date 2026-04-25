@@ -309,6 +309,104 @@ func TestPruneLegacyConfiguredScripts_FallbackPreservesTopLevelScriptsTargets(t 
 	}
 }
 
+func TestPruneLegacyConfiguredScripts_SkipsCityWhenExecOrdersRefPackDirScripts(t *testing.T) {
+	dir := t.TempDir()
+	cityPath := filepath.Join(dir, "city")
+	packScripts := filepath.Join(dir, "packs/base/assets/scripts")
+	if err := os.MkdirAll(packScripts, 0o755); err != nil {
+		t.Fatalf("MkdirAll pack scripts: %v", err)
+	}
+	srcFile := filepath.Join(packScripts, "gate-sweep.sh")
+	if err := os.WriteFile(srcFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile src: %v", err)
+	}
+
+	// Legacy symlink shim: city-root scripts/ points into pack scripts.
+	writeLegacyScriptLink(t, cityPath, "scripts/gate-sweep.sh", srcFile)
+
+	// City-local formulas directory (makes PACK_DIR = cityPath).
+	formulasDir := filepath.Join(cityPath, "formulas")
+	if err := os.MkdirAll(formulasDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll formulas: %v", err)
+	}
+
+	// An exec order that references $PACK_DIR/scripts/.
+	ordersDir := filepath.Join(cityPath, "orders")
+	if err := os.MkdirAll(ordersDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll orders: %v", err)
+	}
+	orderContent := `[order]
+trigger = "cooldown"
+interval = "1h"
+exec = "$PACK_DIR/scripts/gate-sweep.sh"
+`
+	if err := os.WriteFile(filepath.Join(ordersDir, "gate-sweep.toml"), []byte(orderContent), 0o644); err != nil {
+		t.Fatalf("WriteFile order: %v", err)
+	}
+
+	cfg := &config.City{
+		PackDirs: []string{filepath.Join(dir, "packs/base")},
+	}
+
+	var warnings []string
+	pruneLegacyConfiguredScripts(cityPath, cfg, func(scope string, err error) {
+		warnings = append(warnings, scope+": "+err.Error())
+	})
+	if len(warnings) > 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	// scripts/ must survive because an active exec order references $PACK_DIR/scripts/.
+	if _, err := os.Lstat(filepath.Join(cityPath, "scripts", "gate-sweep.sh")); err != nil {
+		t.Fatalf("scripts/ should NOT be pruned when exec orders reference $PACK_DIR/scripts/, err=%v", err)
+	}
+}
+
+func TestPruneLegacyConfiguredScripts_PrunesWhenNoExecOrderRefsPackDirScripts(t *testing.T) {
+	dir := t.TempDir()
+	cityPath := filepath.Join(dir, "city")
+	packScripts := filepath.Join(dir, "packs/base/assets/scripts")
+	if err := os.MkdirAll(packScripts, 0o755); err != nil {
+		t.Fatalf("MkdirAll pack scripts: %v", err)
+	}
+	srcFile := filepath.Join(packScripts, "helper.sh")
+	if err := os.WriteFile(srcFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile src: %v", err)
+	}
+	writeLegacyScriptLink(t, cityPath, "scripts/helper.sh", srcFile)
+
+	// Order that does NOT reference $PACK_DIR/scripts/.
+	ordersDir := filepath.Join(cityPath, "orders")
+	if err := os.MkdirAll(ordersDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll orders: %v", err)
+	}
+	orderContent := `[order]
+trigger = "cooldown"
+interval = "1h"
+exec = "/usr/local/bin/something.sh"
+`
+	if err := os.WriteFile(filepath.Join(ordersDir, "unrelated.toml"), []byte(orderContent), 0o644); err != nil {
+		t.Fatalf("WriteFile order: %v", err)
+	}
+
+	cfg := &config.City{
+		PackDirs: []string{filepath.Join(dir, "packs/base")},
+	}
+
+	var warnings []string
+	pruneLegacyConfiguredScripts(cityPath, cfg, func(scope string, err error) {
+		warnings = append(warnings, scope+": "+err.Error())
+	})
+	if len(warnings) > 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+
+	// scripts/ should still be pruned when no exec orders reference $PACK_DIR/scripts/.
+	if _, err := os.Stat(filepath.Join(cityPath, "scripts")); !os.IsNotExist(err) {
+		t.Fatalf("scripts/ should be pruned when no orders reference $PACK_DIR/scripts/, err=%v", err)
+	}
+}
+
 func TestPrepareCityForSupervisorPrunesLegacyScripts(t *testing.T) {
 	dir := t.TempDir()
 	cityPath := filepath.Join(dir, "city")

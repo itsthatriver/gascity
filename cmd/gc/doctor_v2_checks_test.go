@@ -111,6 +111,61 @@ schema = 2
 	}
 }
 
+func TestV2ScriptsLayoutWarnsAboutOrderRefsWhenLegacyShimAndExecOrders(t *testing.T) {
+	t.Parallel()
+
+	cityDir := t.TempDir()
+	writeDoctorFile(t, cityDir, "city.toml", `
+[workspace]
+name = "city"
+`)
+	writeDoctorFile(t, cityDir, "pack.toml", `
+[pack]
+name = "city"
+schema = 2
+`)
+	srcFile := filepath.Join(cityDir, "assets", "scripts", "gate-sweep.sh")
+	if err := os.MkdirAll(filepath.Dir(srcFile), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(srcFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	scriptsDir := filepath.Join(cityDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Symlink(srcFile, filepath.Join(scriptsDir, "gate-sweep.sh")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	// Add an exec order referencing $PACK_DIR/scripts/.
+	ordersDir := filepath.Join(cityDir, "orders")
+	if err := os.MkdirAll(ordersDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	orderContent := `[order]
+trigger = "cooldown"
+interval = "1h"
+exec = "$PACK_DIR/scripts/gate-sweep.sh"
+`
+	if err := os.WriteFile(filepath.Join(ordersDir, "gate-sweep.toml"), []byte(orderContent), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	res := v2ScriptsLayoutCheck{}.Run(&doctor.CheckContext{CityPath: cityDir})
+	if res.Status != doctor.StatusWarning {
+		t.Fatalf("should warn; got status=%v message=%q", res.Status, res.Message)
+	}
+	if !strings.Contains(res.Message, "exec orders") {
+		t.Fatalf("should mention exec orders in message, got %q", res.Message)
+	}
+	if !strings.Contains(res.FixHint, "migrate") {
+		t.Fatalf("should hint at migration, got %q", res.FixHint)
+	}
+}
+
 func TestV2ScriptsLayoutWarnsForUserManagedSymlinkOnlyDir(t *testing.T) {
 	t.Parallel()
 
